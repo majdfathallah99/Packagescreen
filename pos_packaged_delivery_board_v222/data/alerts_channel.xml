@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<odoo>
-    <record id="channel_pos_packaged_alerts" model="mail.channel">
-        <field name="name">POS Packaged Alerts</field>
-        <field name="channel_type">channel</field>
-        <field name="public">private</field>
-        <field name="description">Ping here whenever a new packaged product (changed UoM) is validated in POS.</field>
-    </record>
-</odoo>
