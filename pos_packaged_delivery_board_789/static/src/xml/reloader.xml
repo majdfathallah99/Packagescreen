@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<t t-name="pos_packaged_delivery_board.Reloader">
+    <div class="o_ppdb_reloader" style="display: none;"></div>
+</t>
