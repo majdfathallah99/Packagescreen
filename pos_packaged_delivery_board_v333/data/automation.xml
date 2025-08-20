@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="automation_notify_new_card" model="base.automation">
+        <field name="name">Notify channel on new packaged card</field>
+        <field name="model_id" ref="model_pos_packaged_card"/>
+        <field name="active">True</field>
+        <field name="trigger">on_create</field>
+        <field name="state">code</field>
+        <field name="code"><![CDATA[
+channel = env.ref('pos_packaged_delivery_board_v18_nowizard_paidonly_live_nocreate.channel_pos_packaged_alerts', raise_if_not_found=False)
+if channel:
+    for c in records:
+        try:
+            body = "<b>New packaged item</b>: %s — %s %s (order <i>%s</i>)" % (
+                c.product_id.display_name, c.qty, c.used_uom_id.name, (c.order_name or c.order_id.display_name)
+            )
+            channel.message_post(body=body, message_type="comment", subtype_xmlid="mail.mt_comment")
+        except Exception:
+            pass
+        ]]></field>
+    </record>
+</odoo>
