@@ -9,21 +9,18 @@
                     <t t-name="kanban-box">
                         <div class="o_kanban_record oe_kanban_global_click">
                             <field name="state" invisible="1"/>
-                            <!-- make template id available for fallback -->
+                            <!-- not required for the avatar widget, but harmless to keep -->
                             <field name="product_tmpl_id" invisible="1"/>
 
                             <!-- Image + details -->
                             <div class="d-flex align-items-start gap-2">
-                                <div class="o_kanban_image">
-                                    <img
-                                        style="width:56px;height:56px;object-fit:cover;border-radius:8px;"
-                                        t-att-src="(record.product_id and record.product_id.raw_value and
-                                                    kanban_image('product.product', record.product_id.raw_value, 'image_256'))
-                                                   or
-                                                   (record.product_tmpl_id and record.product_tmpl_id.raw_value and
-                                                    kanban_image('product.template', record.product_tmpl_id.raw_value, 'image_256'))
-                                                   or ''"
-                                    />
+                                <div class="o_kanban_image d-flex align-items-center justify-content-center"
+                                     style="width:56px;height:56px;border-radius:8px;overflow:hidden;background:#f8f9fa;">
+                                    <!-- Built-in avatar shows variant image, falls back to template image -->
+                                    <field name="product_id"
+                                           widget="many2one_avatar"
+                                           options="{'size': 64, 'no_open': True}"
+                                           class="o_avatar"/>
                                 </div>
 
                                 <div class="o_kanban_details">
