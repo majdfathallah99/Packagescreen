@@ -9,13 +9,21 @@
                     <t t-name="kanban-box">
                         <div class="o_kanban_record oe_kanban_global_click">
                             <field name="state" invisible="1"/>
+                            <!-- make template id available for fallback -->
+                            <field name="product_tmpl_id" invisible="1"/>
 
                             <!-- Image + details -->
                             <div class="d-flex align-items-start gap-2">
                                 <div class="o_kanban_image">
-                                    <img t-if="record.product_id and record.product_id.raw_value"
-                                         t-att-src="kanban_image('product.product', record.product_id.raw_value, 'image_128')"
-                                         class="o_avatar"/>
+                                    <img
+                                        style="width:56px;height:56px;object-fit:cover;border-radius:8px;"
+                                        t-att-src="(record.product_id and record.product_id.raw_value and
+                                                    kanban_image('product.product', record.product_id.raw_value, 'image_256'))
+                                                   or
+                                                   (record.product_tmpl_id and record.product_tmpl_id.raw_value and
+                                                    kanban_image('product.template', record.product_tmpl_id.raw_value, 'image_256'))
+                                                   or ''"
+                                    />
                                 </div>
 
                                 <div class="o_kanban_details">
