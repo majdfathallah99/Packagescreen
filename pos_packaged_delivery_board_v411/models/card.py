@@ -4,7 +4,6 @@ from odoo import api, fields, models, _
 
 DEFAULT_WINDOW_DAYS = 90
 
-
 class PosPackagedCard(models.Model):
     _name = "pos.packaged.card"
     _description = "Card: POS packaged product to hand to customer"
@@ -13,23 +12,15 @@ class PosPackagedCard(models.Model):
         ('uniq_line', 'unique(pos_order_line_id)', 'This POS line is already on the board.')
     ]
 
-    # Links / identities
     pos_order_line_id = fields.Many2one(
-        "pos.order.line", string="POS Line",
-        required=True, ondelete="cascade", index=True
+        "pos.order.line", string="POS Line", required=True, ondelete="cascade", index=True
     )
-    product_id = fields.Many2one(
-        "product.product", string="Product",
-        required=True, index=True
-    )
-    # Handy related (fallbacks / searches)
+    product_id = fields.Many2one("product.product", string="Product", required=True, index=True)
+    # helpful when you want to open the template or use its image
     product_tmpl_id = fields.Many2one(
-        'product.template',
-        related='product_id.product_tmpl_id',
-        readonly=True, store=False
+        "product.template", string="Template", related="product_id.product_tmpl_id", store=False
     )
 
-    # UoM / qty / order info
     default_uom_id = fields.Many2one("uom.uom", string="Default UoM", required=True)
     used_uom_id = fields.Many2one("uom.uom", string="Used UoM (POS)", required=True, index=True)
     qty = fields.Float(string="Qty", digits="Product Unit of Measure", required=True, default=0.0)
@@ -37,26 +28,31 @@ class PosPackagedCard(models.Model):
     date_order = fields.Datetime(string="Sale Date", index=True)
     order_name = fields.Char(string="Order Name")
 
-    # Board state
     state = fields.Selection(
         [("new", "New Orders"), ("confirmed", "Confirmed Orders")],
         default="new", index=True, required=True
     )
     note = fields.Char(string="Note")
 
-    # ---- Image stored on the card (most reliable for Kanban) ----
-    card_image_128 = fields.Image(string="Card Image", compute="_compute_card_image", store=True)
+    # --- IMAGE: compute on read, no need to recompute/upgrade; fallback variant -> template
+    card_image_128 = fields.Image(
+        string="Card Image",
+        compute="_compute_card_image",
+        compute_sudo=True,   # avoid access issues
+        store=False,         # compute every read so it is always fresh
+    )
 
-    @api.depends('product_id', 'product_id.image_128', 'product_id.product_tmpl_id.image_128')
+    @api.depends('product_id')
     def _compute_card_image(self):
-        # Copy variant image; if empty, fallback to template image
-        for rec in self.sudo():
-            prod = rec.product_id.sudo()
-            img = (getattr(prod, 'image_128', False) or
-                   getattr(prod.product_tmpl_id, 'image_128', False))
-            rec.card_image_128 = img
+        for rec in self:
+            img = rec.product_id.image_128
+            if not img:
+                # fallback to template image
+                tmpl = rec.product_id.product_tmpl_id
+                img = tmpl.image_128 if tmpl else False
+            rec.card_image_128 = img or False
 
-    # ---- Buttons ----
+    # --- Actions
     def action_confirm(self):
         self.write({"state": "confirmed"})
         return True
@@ -65,7 +61,7 @@ class PosPackagedCard(models.Model):
         self.write({"state": "new"})
         return True
 
-    # ---- Sync helpers ----
+    # --- Sync helpers
     @api.model
     def _sync_window_start(self):
         days = self.env.context.get("ppdb_days", DEFAULT_WINDOW_DAYS)
@@ -84,14 +80,13 @@ class PosPackagedCard(models.Model):
         if states:
             domain.append(("order_id.state", "in", list(states)))
 
-        # Odoo 18 uses uom_id on pos.order.line; fallback for older dbs
         uom_field = "uom_id" if "uom_id" in POL._fields else "product_uom_id"
         domain.append((uom_field, "!=", False))
 
         lines = POL.search(domain, order="id desc", limit=5000)
         created = self.browse()
         for line in lines:
-            used_uom = getattr(line, uom_field, False)
+            used_uom = getattr(line, uom_field)
             default_uom = line.product_id.product_tmpl_id.uom_id
             if not used_uom or used_uom.id == default_uom.id or not line.qty:
                 continue
@@ -109,13 +104,11 @@ class PosPackagedCard(models.Model):
             try:
                 created |= self.create(vals)
             except Exception:
-                # uniqueness constraint prevents duplicates if re-run
                 pass
         return created
 
     @api.model
     def create_from_one_order(self, order):
-        """Create cards for a single order (called on 'paid')."""
         self = self.sudo()
         POL = self.env["pos.order.line"].sudo()
         uom_field = "uom_id" if "uom_id" in POL._fields else "product_uom_id"
