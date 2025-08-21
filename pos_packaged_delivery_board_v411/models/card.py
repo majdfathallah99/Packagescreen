@@ -1,22 +1,40 @@
 # -*- coding: utf-8 -*-
 from datetime import timedelta
 from odoo import api, fields, models, _
-from base64 import b64encode
 
 DEFAULT_WINDOW_DAYS = 90
+
 
 class PosPackagedCard(models.Model):
     _name = "pos.packaged.card"
     _description = "Card: POS packaged product to hand to customer"
     _order = "id desc"
+
     _sql_constraints = [
         ('uniq_line', 'unique(pos_order_line_id)', 'This POS line is already on the board.')
     ]
 
-    pos_order_line_id = fields.Many2one("pos.order.line", string="POS Line", required=True, ondelete="cascade", index=True)
-    product_id = fields.Many2one("product.product", string="Product", required=True, index=True)
-    # handy relation for fallback
-    product_tmpl_id = fields.Many2one(related="product_id.product_tmpl_id", comodel_name="product.template", store=False, readonly=True)
+    # --- Core links/fields ----------------------------------------------------
+    pos_order_line_id = fields.Many2one(
+        "pos.order.line", string="POS Line", required=True, ondelete="cascade", index=True
+    )
+    product_id = fields.Many2one(
+        "product.product", string="Product", required=True, index=True
+    )
+    # ✅ expose template and image exactly like the Products app does
+    product_tmpl_id = fields.Many2one(
+        "product.template",
+        string="Product Template",
+        related="product_id.product_tmpl_id",
+        store=True,
+        readonly=True,
+    )
+    image_128 = fields.Image(
+        string="Image (128)",
+        related="product_id.image_128",
+        readonly=True,
+    )
+
     default_uom_id = fields.Many2one("uom.uom", string="Default UoM", required=True)
     used_uom_id = fields.Many2one("uom.uom", string="Used UoM (POS)", required=True, index=True)
     qty = fields.Float(string="Qty", digits="Product Unit of Measure", required=True, default=0.0)
@@ -24,29 +42,13 @@ class PosPackagedCard(models.Model):
     date_order = fields.Datetime(string="Sale Date", index=True)
     order_name = fields.Char(string="Order Name")
 
-    state = fields.Selection([("new", "New Orders"), ("confirmed", "Confirmed Orders")], default="new", index=True, required=True)
+    state = fields.Selection(
+        [("new", "New Orders"), ("confirmed", "Confirmed Orders")],
+        default="new", index=True, required=True
+    )
     note = fields.Char(string="Note")
 
-    # >>> add this
-    image_data_uri = fields.Char(string="Image (data URI)", compute="_compute_image_data_uri", store=False, readonly=True)
-    # <<<
-
-    @api.depends('product_id', 'product_tmpl_id')
-    def _compute_image_data_uri(self):
-        """Build a safe <img src> for kanban from variant or template image."""
-        for rec in self:
-            uri = False
-            # Odoo stores base64 text in image_128; pick variant then template
-            img_b64 = rec.product_id.image_128 or rec.product_tmpl_id.image_128
-            if img_b64:
-                # image_128 is already base64 text/bytes; normalize to str
-                if isinstance(img_b64, (bytes, bytearray, memoryview)):
-                    img_b64 = bytes(img_b64).decode('utf-8')
-                # we don’t know mime for sure; png is fine as generic
-                uri = f"data:image/png;base64,{img_b64}"
-            rec.image_data_uri = uri or False
-
-    # --- your existing methods below (unchanged) ---
+    # --- Actions --------------------------------------------------------------
     def action_confirm(self):
         self.write({"state": "confirmed"})
         return True
@@ -55,6 +57,7 @@ class PosPackagedCard(models.Model):
         self.write({"state": "new"})
         return True
 
+    # --- Sync helpers ---------------------------------------------------------
     @api.model
     def _sync_window_start(self):
         days = self.env.context.get("ppdb_days", DEFAULT_WINDOW_DAYS)
@@ -63,15 +66,15 @@ class PosPackagedCard(models.Model):
     @api.model
     def create_from_pos_lines(self, date_from=False, states=("paid",)):
         POL = self.env["pos.order.line"].sudo()
-        domain = [("qty","!=",0)]
+        domain = [("qty", "!=", 0)]
         if date_from:
             orders = self.env["pos.order"].sudo().search([("date_order", ">=", date_from)])
             if orders:
-                domain.append(("order_id","in", orders.ids))
+                domain.append(("order_id", "in", orders.ids))
             else:
                 return self.browse()
         if states:
-            domain.append(("order_id.state","in", list(states)))
+            domain.append(("order_id.state", "in", list(states)))
 
         uom_field = "uom_id" if "uom_id" in POL._fields else "product_uom_id"
         domain.append((uom_field, "!=", False))
@@ -97,11 +100,13 @@ class PosPackagedCard(models.Model):
             try:
                 created |= self.create(vals)
             except Exception:
+                # uniqueness constraint prevents duplicates if re-run
                 pass
         return created
 
     @api.model
     def create_from_one_order(self, order):
+        """Create cards for a single order (called on 'paid')."""
         self = self.sudo()
         POL = self.env["pos.order.line"].sudo()
         uom_field = "uom_id" if "uom_id" in POL._fields else "product_uom_id"
