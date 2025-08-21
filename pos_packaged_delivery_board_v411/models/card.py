@@ -14,26 +14,18 @@ class PosPackagedCard(models.Model):
         ('uniq_line', 'unique(pos_order_line_id)', 'This POS line is already on the board.')
     ]
 
-    # --- Core links/fields ----------------------------------------------------
+    # --- Links / info ---------------------------------------------------------
     pos_order_line_id = fields.Many2one(
         "pos.order.line", string="POS Line", required=True, ondelete="cascade", index=True
     )
-    product_id = fields.Many2one(
-        "product.product", string="Product", required=True, index=True
-    )
-    # ✅ expose template and image exactly like the Products app does
+    product_id = fields.Many2one("product.product", string="Product", required=True, index=True)
     product_tmpl_id = fields.Many2one(
-        "product.template",
-        string="Product Template",
-        related="product_id.product_tmpl_id",
-        store=True,
-        readonly=True,
+        "product.template", string="Product Template",
+        related="product_id.product_tmpl_id", store=True, readonly=True
     )
-    image_128 = fields.Image(
-        string="Image (128)",
-        related="product_id.image_128",
-        readonly=True,
-    )
+
+    # ✅ Local snapshot of the product picture (what Kanban will render)
+    image_128_local = fields.Image(string="Card Image", max_width=128, max_height=128)
 
     default_uom_id = fields.Many2one("uom.uom", string="Default UoM", required=True)
     used_uom_id = fields.Many2one("uom.uom", string="Used UoM (POS)", required=True, index=True)
@@ -57,7 +49,15 @@ class PosPackagedCard(models.Model):
         self.write({"state": "new"})
         return True
 
-    # --- Sync helpers ---------------------------------------------------------
+    # --- Helpers --------------------------------------------------------------
+    def _take_product_image(self, product):
+        """Return the best available image bytes for the given product."""
+        if not product:
+            return False
+        # try variant first, then template
+        return product.image_128 or product.product_tmpl_id.image_128 or False
+
+    # --- Sync / creation ------------------------------------------------------
     @api.model
     def _sync_window_start(self):
         days = self.env.context.get("ppdb_days", DEFAULT_WINDOW_DAYS)
@@ -86,9 +86,12 @@ class PosPackagedCard(models.Model):
             default_uom = line.product_id.product_tmpl_id.uom_id
             if not used_uom or used_uom.id == default_uom.id or not line.qty:
                 continue
+
             vals = {
                 "pos_order_line_id": line.id,
                 "product_id": line.product_id.id,
+                "product_tmpl_id": line.product_id.product_tmpl_id.id,
+                "image_128_local": self._take_product_image(line.product_id),
                 "default_uom_id": default_uom.id,
                 "used_uom_id": used_uom.id,
                 "qty": line.qty,
@@ -116,9 +119,12 @@ class PosPackagedCard(models.Model):
             default_uom = line.product_id.product_tmpl_id.uom_id
             if not used_uom or used_uom.id == default_uom.id or not line.qty:
                 continue
+
             vals = {
                 "pos_order_line_id": line.id,
                 "product_id": line.product_id.id,
+                "product_tmpl_id": line.product_id.product_tmpl_id.id,
+                "image_128_local": self._take_product_image(line.product_id),
                 "default_uom_id": default_uom.id,
                 "used_uom_id": used_uom.id,
                 "qty": line.qty,
@@ -132,6 +138,16 @@ class PosPackagedCard(models.Model):
             except Exception:
                 pass
         return created
+
+    # Backfill for existing cards (optional utility you can run once)
+    @api.model
+    def action_backfill_images(self):
+        cards = self.search([("image_128_local", "=", False), ("product_id", "!=", False)], order="id desc")
+        for c in cards:
+            img = c._take_product_image(c.product_id)
+            if img:
+                c.image_128_local = img
+        return True
 
     @api.model
     def action_refresh_board(self):
