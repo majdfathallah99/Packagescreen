@@ -4,6 +4,7 @@ from odoo import api, fields, models, _
 
 DEFAULT_WINDOW_DAYS = 90
 
+
 class PosPackagedCard(models.Model):
     _name = "pos.packaged.card"
     _description = "Card: POS packaged product to hand to customer"
@@ -12,15 +13,11 @@ class PosPackagedCard(models.Model):
         ('uniq_line', 'unique(pos_order_line_id)', 'This POS line is already on the board.')
     ]
 
+    # core fields
     pos_order_line_id = fields.Many2one(
         "pos.order.line", string="POS Line", required=True, ondelete="cascade", index=True
     )
     product_id = fields.Many2one("product.product", string="Product", required=True, index=True)
-    # helpful when you want to open the template or use its image
-    product_tmpl_id = fields.Many2one(
-        "product.template", string="Template", related="product_id.product_tmpl_id", store=False
-    )
-
     default_uom_id = fields.Many2one("uom.uom", string="Default UoM", required=True)
     used_uom_id = fields.Many2one("uom.uom", string="Used UoM (POS)", required=True, index=True)
     qty = fields.Float(string="Qty", digits="Product Unit of Measure", required=True, default=0.0)
@@ -34,25 +31,22 @@ class PosPackagedCard(models.Model):
     )
     note = fields.Char(string="Note")
 
-    # --- IMAGE: compute on read, no need to recompute/upgrade; fallback variant -> template
-    card_image_128 = fields.Image(
-        string="Card Image",
-        compute="_compute_card_image",
-        compute_sudo=True,   # avoid access issues
-        store=False,         # compute every read so it is always fresh
+    # ✅ single image exposed on this model (served from product or template)
+    image_128 = fields.Image(
+        string="Image",
+        compute="_compute_image_128",
+        readonly=True,
+        store=False,
     )
 
-    @api.depends('product_id')
-    def _compute_card_image(self):
-        for rec in self:
-            img = rec.product_id.image_128
-            if not img:
-                # fallback to template image
-                tmpl = rec.product_id.product_tmpl_id
-                img = tmpl.image_128 if tmpl else False
-            rec.card_image_128 = img or False
+    @api.depends('product_id', 'product_id.image_128', 'product_id.product_tmpl_id.image_128')
+    def _compute_image_128(self):
+        # sudo avoids attachment/image ACL surprises in boards
+        for rec in self.sudo():
+            img = rec.product_id.image_128 or rec.product_id.product_tmpl_id.image_128
+            rec.image_128 = img
 
-    # --- Actions
+    # --- actions
     def action_confirm(self):
         self.write({"state": "confirmed"})
         return True
@@ -61,7 +55,7 @@ class PosPackagedCard(models.Model):
         self.write({"state": "new"})
         return True
 
-    # --- Sync helpers
+    # --- Sync helpers (unchanged)
     @api.model
     def _sync_window_start(self):
         days = self.env.context.get("ppdb_days", DEFAULT_WINDOW_DAYS)
