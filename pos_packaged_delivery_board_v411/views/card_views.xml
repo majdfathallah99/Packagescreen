@@ -10,13 +10,15 @@
             <div class="o_kanban_record oe_kanban_global_click">
               <field name="state" invisible="1"/>
               <field name="product_id" invisible="1"/>
-              <field name="image_128" invisible="1"/>
+              <field name="image_data_uri" invisible="1"/>
 
               <div class="d-flex align-items-start gap-2">
-                <!-- ✅ guaranteed image from this model -->
                 <div class="o_kanban_image d-flex align-items-center justify-content-center"
                      style="width:56px;height:56px;border-radius:8px;overflow:hidden;background:#f8f9fa;">
-                  <field name="image_128" widget="image" options="{'size': 64}" class="o_avatar"/>
+                  <img class="o_avatar o_avatar_64"
+                       t-att-src="(record.image_data_uri and record.image_data_uri.value) or '/web/static/img/placeholder.png'"
+                       t-att-alt="record.product_id and record.product_id.value or ''"
+                       style="width:56px;height:56px;object-fit:cover;"/>
                 </div>
 
                 <div class="o_kanban_details">
@@ -29,15 +31,11 @@
 
               <div class="o_kanban_footer mt-2">
                 <t t-if="record.state and record.state.raw_value == 'new'">
-                  <button type="object" name="action_confirm" class="oe_kanban_action oe_kanban_button btn-primary">
-                    Confirm
-                  </button>
+                  <button type="object" name="action_confirm" class="oe_kanban_action oe_kanban_button btn-primary">Confirm</button>
                 </t>
                 <t t-if="record.state and record.state.raw_value == 'confirmed'">
                   <span class="badge badge-success">Confirmed</span>
-                  <button type="object" name="action_reset" class="oe_kanban_action oe_kanban_button ms-2">
-                    Reset
-                  </button>
+                  <button type="object" name="action_reset" class="oe_kanban_action oe_kanban_button ms-2">Reset</button>
                 </t>
               </div>
             </div>
@@ -46,6 +44,4 @@
       </kanban>
     </field>
   </record>
-
-  <!-- (Optional) keep your list/form/search as-is -->
 </odoo>
