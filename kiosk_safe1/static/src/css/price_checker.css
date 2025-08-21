@@ -1,0 +1,14 @@
+.o_price_checker_form .o_pc_img img {
+    max-width: 140px;
+    max-height: 140px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.1);
+}
+.o_price_checker_form .o_pc_result .o_field_widget[name="price"] {
+    font-size: 22px;
+    font-weight: 700;
+}
+.o_price_checker_form input[name="barcode"] {
+    font-size: 18px;
+    height: 44px;
+}
