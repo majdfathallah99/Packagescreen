@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from datetime import timedelta
 from odoo import api, fields, models, _
-from odoo.tools import image_data_uri  # <- important
 
 DEFAULT_WINDOW_DAYS = 90
 
@@ -26,24 +25,28 @@ class PosPackagedCard(models.Model):
     state = fields.Selection([("new", "New Orders"), ("confirmed", "Confirmed Orders")], default="new", index=True, required=True)
     note = fields.Char(string="Note")
 
-    # 🔒 Bullet-proof image for Kanban: a data URI string
+    # Failsafe inline image for Kanban (data URI, computed every read)
     image_data_uri = fields.Text(string="Image Data URI", compute="_compute_image_data_uri", compute_sudo=True, store=False)
 
     @api.depends('product_id', 'product_id.image_128', 'product_id.product_tmpl_id.image_128')
     def _compute_image_data_uri(self):
         for rec in self.sudo():
-            # Try variant image, then template image
+            # pick variant image, or fallback to template
             img = rec.product_id.image_128 or (rec.product_id.product_tmpl_id and rec.product_id.product_tmpl_id.image_128)
-            if img:
-                try:
-                    rec.image_data_uri = image_data_uri(img)  # -> "data:image/png;base64,...."
-                except Exception:
-                    # Fallback if helper ever fails
-                    rec.image_data_uri = 'data:image/png;base64,%s' % img.decode() if isinstance(img, (bytes, bytearray)) else f'data:image/png;base64,{img}'
-            else:
+            if not img:
                 rec.image_data_uri = False
+                continue
+            # image_* fields are base64-encoded strings in Odoo; ensure we concatenate as text
+            if isinstance(img, (bytes, bytearray)):
+                try:
+                    img = img.decode('ascii')
+                except Exception:
+                    # last resort – leave blank if decode fails (prevents server crash)
+                    rec.image_data_uri = False
+                    continue
+            rec.image_data_uri = 'data:image/png;base64,' + img
 
-    # --- your existing actions and sync helpers unchanged ---
+    # --- actions
     def action_confirm(self):
         self.write({"state": "confirmed"})
         return True
@@ -52,6 +55,7 @@ class PosPackagedCard(models.Model):
         self.write({"state": "new"})
         return True
 
+    # --- sync helpers (unchanged)
     @api.model
     def _sync_window_start(self):
         days = self.env.context.get("ppdb_days", DEFAULT_WINDOW_DAYS)
@@ -60,15 +64,15 @@ class PosPackagedCard(models.Model):
     @api.model
     def create_from_pos_lines(self, date_from=False, states=("paid",)):
         POL = self.env["pos.order.line"].sudo()
-        domain = [("qty","!=",0)]
+        domain = [("qty", "!=", 0)]
         if date_from:
             orders = self.env["pos.order"].sudo().search([("date_order", ">=", date_from)])
             if orders:
-                domain.append(("order_id","in", orders.ids))
+                domain.append(("order_id", "in", orders.ids))
             else:
                 return self.browse()
         if states:
-            domain.append(("order_id.state","in", list(states)))
+            domain.append(("order_id.state", "in", list(states)))
 
         uom_field = "uom_id" if "uom_id" in POL._fields else "product_uom_id"
         domain.append((uom_field, "!=", False))
@@ -76,7 +80,7 @@ class PosPackagedCard(models.Model):
         lines = POL.search(domain, order="id desc", limit=5000)
         created = self.browse()
         for line in lines:
-            used_uom = getattr(line, uom_field, False)
+            used_uom = getattr(line, uom_field)
             default_uom = line.product_id.product_tmpl_id.uom_id
             if not used_uom or used_uom.id == default_uom.id or not line.qty:
                 continue
