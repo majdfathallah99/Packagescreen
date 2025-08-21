@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-  <!-- KANBAN: uses precomputed image_data_uri -->
+  <!-- KANBAN -->
   <record id="view_pos_packaged_card_kanban" model="ir.ui.view">
     <field name="name">pos.packaged.card.kanban</field>
     <field name="model">pos.packaged.card</field>
@@ -10,17 +10,17 @@
         <templates>
           <t t-name="kanban-box">
             <div class="o_kanban_record oe_kanban_global_click">
-              <!-- ensure fields are in the payload -->
+              <!-- Make sure these fields are loaded in the payload -->
               <field name="state" invisible="1"/>
               <field name="product_id" invisible="1"/>
               <field name="image_data_uri" invisible="1"/>
 
               <div class="d-flex align-items-start gap-2">
-                <!-- Show precomputed data URI directly -->
+                <!-- Image from precomputed data URI -->
                 <div class="o_kanban_image d-flex align-items-center justify-content-center"
                      style="width:56px;height:56px;border-radius:8px;overflow:hidden;background:#f8f9fa;">
                   <img class="o_avatar o_avatar_64"
-                       t-att-src="(record.image_data_uri and record.image_data_uri.value) or '/web/static/img/placeholder.png'"
+                       t-att-src="(record.image_data_uri and record.image_data_uri.raw_value) or '/web/static/img/placeholder.png'"
                        t-att-alt="record.product_id and record.product_id.value or ''"
                        style="width:56px;height:56px;object-fit:cover;"/>
                 </div>
@@ -41,15 +41,13 @@
 
               <div class="o_kanban_footer mt-2">
                 <t t-if="record.state and record.state.raw_value == 'new'">
-                  <button type="object" name="action_confirm" class="oe_kanban_action oe_kanban_button btn-primary">
-                    Confirm
-                  </button>
+                  <button type="object" name="action_confirm"
+                          class="oe_kanban_action oe_kanban_button btn-primary">Confirm</button>
                 </t>
                 <t t-if="record.state and record.state.raw_value == 'confirmed'">
                   <span class="badge badge-success">Confirmed</span>
-                  <button type="object" name="action_reset" class="oe_kanban_action oe_kanban_button ms-2">
-                    Reset
-                  </button>
+                  <button type="object" name="action_reset"
+                          class="oe_kanban_action oe_kanban_button ms-2">Reset</button>
                 </t>
               </div>
             </div>
@@ -93,8 +91,10 @@
             <field name="note"/>
           </group>
           <footer>
-            <button name="action_confirm" type="object" string="Confirm" class="btn-primary" invisible="state != 'new'"/>
-            <button name="action_reset" type="object" string="Reset to New" class="btn-secondary" invisible="state != 'confirmed'"/>
+            <button name="action_confirm" type="object" string="Confirm" class="btn-primary"
+                    invisible="state != 'new'"/>
+            <button name="action_reset" type="object" string="Reset to New" class="btn-secondary"
+                    invisible="state != 'confirmed'"/>
             <button string="Close" class="btn-secondary" special="cancel"/>
           </footer>
         </sheet>
