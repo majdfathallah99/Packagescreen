@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 from datetime import timedelta
 from odoo import api, fields, models, _
+from base64 import b64encode
 
 DEFAULT_WINDOW_DAYS = 90
-
 
 class PosPackagedCard(models.Model):
     _name = "pos.packaged.card"
@@ -15,6 +15,8 @@ class PosPackagedCard(models.Model):
 
     pos_order_line_id = fields.Many2one("pos.order.line", string="POS Line", required=True, ondelete="cascade", index=True)
     product_id = fields.Many2one("product.product", string="Product", required=True, index=True)
+    # handy relation for fallback
+    product_tmpl_id = fields.Many2one(related="product_id.product_tmpl_id", comodel_name="product.template", store=False, readonly=True)
     default_uom_id = fields.Many2one("uom.uom", string="Default UoM", required=True)
     used_uom_id = fields.Many2one("uom.uom", string="Used UoM (POS)", required=True, index=True)
     qty = fields.Float(string="Qty", digits="Product Unit of Measure", required=True, default=0.0)
@@ -25,28 +27,26 @@ class PosPackagedCard(models.Model):
     state = fields.Selection([("new", "New Orders"), ("confirmed", "Confirmed Orders")], default="new", index=True, required=True)
     note = fields.Char(string="Note")
 
-    # Failsafe inline image for Kanban (data URI, computed every read)
-    image_data_uri = fields.Text(string="Image Data URI", compute="_compute_image_data_uri", compute_sudo=True, store=False)
+    # >>> add this
+    image_data_uri = fields.Char(string="Image (data URI)", compute="_compute_image_data_uri", store=False, readonly=True)
+    # <<<
 
-    @api.depends('product_id', 'product_id.image_128', 'product_id.product_tmpl_id.image_128')
+    @api.depends('product_id', 'product_tmpl_id')
     def _compute_image_data_uri(self):
-        for rec in self.sudo():
-            # pick variant image, or fallback to template
-            img = rec.product_id.image_128 or (rec.product_id.product_tmpl_id and rec.product_id.product_tmpl_id.image_128)
-            if not img:
-                rec.image_data_uri = False
-                continue
-            # image_* fields are base64-encoded strings in Odoo; ensure we concatenate as text
-            if isinstance(img, (bytes, bytearray)):
-                try:
-                    img = img.decode('ascii')
-                except Exception:
-                    # last resort – leave blank if decode fails (prevents server crash)
-                    rec.image_data_uri = False
-                    continue
-            rec.image_data_uri = 'data:image/png;base64,' + img
+        """Build a safe <img src> for kanban from variant or template image."""
+        for rec in self:
+            uri = False
+            # Odoo stores base64 text in image_128; pick variant then template
+            img_b64 = rec.product_id.image_128 or rec.product_tmpl_id.image_128
+            if img_b64:
+                # image_128 is already base64 text/bytes; normalize to str
+                if isinstance(img_b64, (bytes, bytearray, memoryview)):
+                    img_b64 = bytes(img_b64).decode('utf-8')
+                # we don’t know mime for sure; png is fine as generic
+                uri = f"data:image/png;base64,{img_b64}"
+            rec.image_data_uri = uri or False
 
-    # --- actions
+    # --- your existing methods below (unchanged) ---
     def action_confirm(self):
         self.write({"state": "confirmed"})
         return True
@@ -55,7 +55,6 @@ class PosPackagedCard(models.Model):
         self.write({"state": "new"})
         return True
 
-    # --- sync helpers (unchanged)
     @api.model
     def _sync_window_start(self):
         days = self.env.context.get("ppdb_days", DEFAULT_WINDOW_DAYS)
@@ -64,15 +63,15 @@ class PosPackagedCard(models.Model):
     @api.model
     def create_from_pos_lines(self, date_from=False, states=("paid",)):
         POL = self.env["pos.order.line"].sudo()
-        domain = [("qty", "!=", 0)]
+        domain = [("qty","!=",0)]
         if date_from:
             orders = self.env["pos.order"].sudo().search([("date_order", ">=", date_from)])
             if orders:
-                domain.append(("order_id", "in", orders.ids))
+                domain.append(("order_id","in", orders.ids))
             else:
                 return self.browse()
         if states:
-            domain.append(("order_id.state", "in", list(states)))
+            domain.append(("order_id.state","in", list(states)))
 
         uom_field = "uom_id" if "uom_id" in POL._fields else "product_uom_id"
         domain.append((uom_field, "!=", False))
