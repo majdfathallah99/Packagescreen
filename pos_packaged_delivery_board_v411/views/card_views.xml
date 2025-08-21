@@ -8,43 +8,34 @@
         <templates>
           <t t-name="kanban-box">
             <div class="o_kanban_record oe_kanban_global_click">
-              <!-- make sure these fields are in the record payload -->
               <field name="state" invisible="1"/>
               <field name="product_id" invisible="1"/>
-              <field name="product_tmpl_id" invisible="1"/>
+              <field name="image_128" invisible="1"/>
 
               <div class="d-flex align-items-start gap-2">
-                <!-- ✅ avatar from product.product (falls back to template image automatically) -->
-                <div class="o_kanban_image o_kanban_avatar d-flex align-items-center justify-content-center">
-                  <field name="product_id" widget="many2one_avatar" options="{'size': 64}"/>
+                <!-- ✅ guaranteed image from this model -->
+                <div class="o_kanban_image d-flex align-items-center justify-content-center"
+                     style="width:56px;height:56px;border-radius:8px;overflow:hidden;background:#f8f9fa;">
+                  <field name="image_128" widget="image" options="{'size': 64}" class="o_avatar"/>
                 </div>
 
                 <div class="o_kanban_details">
                   <strong><field name="product_id"/></strong>
-                  <div class="text-muted">
-                    <span>Order: </span><field name="order_id"/>
-                  </div>
-                  <div class="text-muted">
-                    <span>UoM: </span><field name="used_uom_id"/> ·
-                    <span>Qty: </span><field name="qty"/>
-                  </div>
-                  <div class="text-muted">
-                    <span>Date: </span><field name="date_order"/>
-                  </div>
+                  <div class="text-muted"><span>Order: </span><field name="order_id"/></div>
+                  <div class="text-muted"><span>UoM: </span><field name="used_uom_id"/> · <span>Qty: </span><field name="qty"/></div>
+                  <div class="text-muted"><span>Date: </span><field name="date_order"/></div>
                 </div>
               </div>
 
               <div class="o_kanban_footer mt-2">
                 <t t-if="record.state and record.state.raw_value == 'new'">
-                  <button type="object" name="action_confirm"
-                          class="oe_kanban_action oe_kanban_button btn-primary">
+                  <button type="object" name="action_confirm" class="oe_kanban_action oe_kanban_button btn-primary">
                     Confirm
                   </button>
                 </t>
                 <t t-if="record.state and record.state.raw_value == 'confirmed'">
                   <span class="badge badge-success">Confirmed</span>
-                  <button type="object" name="action_reset"
-                          class="oe_kanban_action oe_kanban_button ms-2">
+                  <button type="object" name="action_reset" class="oe_kanban_action oe_kanban_button ms-2">
                     Reset
                   </button>
                 </t>
@@ -55,4 +46,6 @@
       </kanban>
     </field>
   </record>
+
+  <!-- (Optional) keep your list/form/search as-is -->
 </odoo>
