@@ -9,18 +9,29 @@
                     <t t-name="kanban-box">
                         <div class="o_kanban_record oe_kanban_global_click">
                             <field name="state" invisible="1"/>
-                            <div class="o_kanban_details">
-                                <strong><field name="product_id"/></strong>
-                                <div class="text-muted">
-                                    <span>Order: </span><field name="order_id"/>
+
+                            <!-- Image + details -->
+                            <div class="d-flex align-items-start gap-2">
+                                <div class="o_kanban_image">
+                                    <img t-if="record.product_id and record.product_id.raw_value"
+                                         t-att-src="kanban_image('product.product', record.product_id.raw_value, 'image_128')"
+                                         class="o_avatar"/>
                                 </div>
-                                <div class="text-muted">
-                                    <span>UoM: </span><field name="used_uom_id"/> · <span>Qty: </span><field name="qty"/>
-                                </div>
-                                <div class="text-muted">
-                                    <span>Date: </span><field name="date_order"/>
+
+                                <div class="o_kanban_details">
+                                    <strong><field name="product_id"/></strong>
+                                    <div class="text-muted">
+                                        <span>Order: </span><field name="order_id"/>
+                                    </div>
+                                    <div class="text-muted">
+                                        <span>UoM: </span><field name="used_uom_id"/> · <span>Qty: </span><field name="qty"/>
+                                    </div>
+                                    <div class="text-muted">
+                                        <span>Date: </span><field name="date_order"/>
+                                    </div>
                                 </div>
                             </div>
+
                             <div class="o_kanban_footer mt-2">
                                 <t t-if="record.state and record.state.raw_value == 'new'">
                                     <button type="object" name="action_confirm" class="oe_kanban_action oe_kanban_button btn-primary">
