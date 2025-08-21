@@ -8,11 +8,13 @@
         <templates>
           <t t-name="kanban-box">
             <div class="o_kanban_record oe_kanban_global_click">
+              <!-- Make sure the fields are loaded in the payload -->
               <field name="state" invisible="1"/>
               <field name="product_id" invisible="1"/>
               <field name="image_data_uri" invisible="1"/>
 
               <div class="d-flex align-items-start gap-2">
+                <!-- ✅ Show the precomputed data URI directly -->
                 <div class="o_kanban_image d-flex align-items-center justify-content-center"
                      style="width:56px;height:56px;border-radius:8px;overflow:hidden;background:#f8f9fa;">
                   <img class="o_avatar o_avatar_64"
