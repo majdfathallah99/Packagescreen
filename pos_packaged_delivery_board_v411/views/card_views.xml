@@ -4,44 +4,49 @@
     <field name="name">pos.packaged.card.kanban</field>
     <field name="model">pos.packaged.card</field>
     <field name="arch" type="xml">
-      <kanban create="false" default_group_by="state">
+      <kanban create="false" default_group_by="state" class="o_kanban_small_column">
         <templates>
           <t t-name="kanban-box">
             <div class="o_kanban_record oe_kanban_global_click">
-              <!-- ensure these fields are loaded so we can build URLs -->
+              <!-- make sure these fields are in the record payload -->
               <field name="state" invisible="1"/>
               <field name="product_id" invisible="1"/>
               <field name="product_tmpl_id" invisible="1"/>
 
               <div class="d-flex align-items-start gap-2">
-                <!-- ONE image, from /web/image; fallback to template, else placeholder -->
+                <!-- ✅ avatar from product.product (falls back to template image automatically) -->
                 <div class="o_kanban_image o_kanban_avatar d-flex align-items-center justify-content-center">
-                  <img class="o_avatar o_avatar_64"
-                       t-att-alt="record.product_id and record.product_id.value or ''"
-                       t-att-src="
-                        (record.product_id and record.product_id.raw_value)
-                          ? ('/web/image/product.product/' + record.product_id.raw_value + '/image_128')
-                          : (record.product_tmpl_id and record.product_tmpl_id.raw_value)
-                              ? ('/web/image/product.template/' + record.product_tmpl_id.raw_value + '/image_128')
-                              : '/web/static/img/placeholder.png'
-                       "/>
+                  <field name="product_id" widget="many2one_avatar" options="{'size': 64}"/>
                 </div>
 
                 <div class="o_kanban_details">
                   <strong><field name="product_id"/></strong>
-                  <div class="text-muted"><span>Order: </span><field name="order_id"/></div>
-                  <div class="text-muted"><span>UoM: </span><field name="used_uom_id"/> · <span>Qty: </span><field name="qty"/></div>
-                  <div class="text-muted"><span>Date: </span><field name="date_order"/></div>
+                  <div class="text-muted">
+                    <span>Order: </span><field name="order_id"/>
+                  </div>
+                  <div class="text-muted">
+                    <span>UoM: </span><field name="used_uom_id"/> ·
+                    <span>Qty: </span><field name="qty"/>
+                  </div>
+                  <div class="text-muted">
+                    <span>Date: </span><field name="date_order"/>
+                  </div>
                 </div>
               </div>
 
               <div class="o_kanban_footer mt-2">
                 <t t-if="record.state and record.state.raw_value == 'new'">
-                  <button type="object" name="action_confirm" class="oe_kanban_action oe_kanban_button btn-primary">Confirm</button>
+                  <button type="object" name="action_confirm"
+                          class="oe_kanban_action oe_kanban_button btn-primary">
+                    Confirm
+                  </button>
                 </t>
                 <t t-if="record.state and record.state.raw_value == 'confirmed'">
                   <span class="badge badge-success">Confirmed</span>
-                  <button type="object" name="action_reset" class="oe_kanban_action oe_kanban_button ms-2">Reset</button>
+                  <button type="object" name="action_reset"
+                          class="oe_kanban_action oe_kanban_button ms-2">
+                    Reset
+                  </button>
                 </t>
               </div>
             </div>
