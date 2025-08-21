@@ -14,6 +14,15 @@ class PosPackagedCard(models.Model):
 
     pos_order_line_id = fields.Many2one("pos.order.line", string="POS Line", required=True, ondelete="cascade", index=True)
     product_id = fields.Many2one("product.product", string="Product", required=True, index=True)
+
+    # 🔽 add this field (variant → template fallback for the image)
+    product_tmpl_id = fields.Many2one(
+        "product.template",
+        related="product_id.product_tmpl_id",
+        readonly=True,
+        store=False,   # no DB column; enough for the Kanban image fallback
+    )
+
     default_uom_id = fields.Many2one("uom.uom", string="Default UoM", required=True)
     used_uom_id = fields.Many2one("uom.uom", string="Used UoM (POS)", required=True, index=True)
     qty = fields.Float(string="Qty", digits="Product Unit of Measure", required=True, default=0.0)
