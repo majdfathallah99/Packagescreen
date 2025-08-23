@@ -1,1 +1,0 @@
-{'name': 'POS Packaged Delivery Board', 'version': '4.12.0', 'summary': 'Handout tracker for POS lines sold in alternate UoM (New vs Confirmed).', 'author': 'ChatGPT', 'license': 'LGPL-3', 'depends': ['point_of_sale', 'product', 'uom'], 'data': ['security/ir.model.access.csv', 'views/card_views.xml'], 'application': True}
