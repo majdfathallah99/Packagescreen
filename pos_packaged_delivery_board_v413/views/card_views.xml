@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_pos_packaged_card_kanban" model="ir.ui.view">
+        <field name="name">pos.packaged.card.kanban</field>
+        <field name="model">pos.packaged.card</field>
+        <field name="arch" type="xml">
+            <kanban create="false" class="o_kanban_small_column" default_group_by="state">
+                <header>
+                    <button type="object" name="action_move_confirmed_to_done" string="Mark All Confirmed as Done" class="btn-primary"/>
+                </header>
+                <templates>
+                    <t t-name="kanban-box">
+                        <div class="o_kanban_record oe_kanban_global_click">
+                            <field name="state" invisible="1"/>
+                            <field name="product_id" invisible="1"/>
+                            <field name="image_128_product" invisible="1"/>
+                            <field name="image_128_template" invisible="1"/>
+                            <field name="image_data_uri" invisible="1"/>
+
+                            <div class="d-flex align-items-start gap-2">
+                                <div class="o_kanban_image d-flex align-items-center justify-content-center"
+                                     style="width:56px;height:56px;border-radius:8px;overflow:hidden;background:#f8f9fa;">
+                                    <!-- Try related binary with widget first -->
+                                    <field name="image_128_product" widget="image" options="{'size': 64}" class="o_avatar"/>
+                                </div>
+                                <div class="o_kanban_details">
+                                    <strong><field name="product_id"/></strong>
+                                    <div class="text-muted">Order: <field name="order_id"/></div>
+                                    <div class="text-muted">UoM: <field name="used_uom_id"/> · Qty: <field name="qty"/></div>
+                                    <div class="text-muted">Date: <field name="date_order"/></div>
+                                </div>
+                            </div>
+
+                            <div class="o_kanban_footer mt-2">
+                                <t t-if="record.state and record.state.raw_value == 'new'">
+                                    <button type="object" name="action_confirm" class="oe_kanban_action oe_kanban_button btn-primary">Confirm</button>
+                                </t>
+                                <t t-if="record.state and record.state.raw_value == 'confirmed'">
+                                    <span class="badge badge-success">Confirmed</span>
+                                    <button type="object" name="action_reset" class="oe_kanban_action oe_kanban_button ms-2">Reset</button>
+                                </t>
+                                <t t-if="record.state and record.state.raw_value == 'done'">
+                                    <span class="badge badge-secondary">Done</span>
+                                    <button type="object" name="action_reset" class="oe_kanban_action oe_kanban_button ms-2">Reset</button>
+                                </t>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="view_pos_packaged_card_list" model="ir.ui.view">
+        <field name="name">pos.packaged.card.list</field>
+        <field name="model">pos.packaged.card</field>
+        <field name="arch" type="xml">
+            <list create="false" string="POS Packaged Cards">
+                <field name="state"/>
+                <field name="product_id"/>
+                <field name="used_uom_id"/>
+                <field name="qty"/>
+                <field name="order_id"/>
+                <field name="date_order"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_pos_packaged_card_form" model="ir.ui.view">
+        <field name="name">pos.packaged.card.form</field>
+        <field name="model">pos.packaged.card</field>
+        <field name="arch" type="xml">
+            <form string="POS Packaged Card">
+                <sheet>
+                    <group>
+                        <field name="state"/>
+                        <field name="product_id"/>
+                        <field name="default_uom_id"/>
+                        <field name="used_uom_id"/>
+                        <field name="qty"/>
+                        <field name="order_id"/>
+                        <field name="date_order"/>
+                        <field name="note"/>
+                    </group>
+                    <footer>
+                        <button name="action_confirm" type="object" string="Confirm" class="btn-primary" invisible="state != 'new'"/>
+                        <button name="action_reset" type="object" string="Reset to New" class="btn-secondary" invisible="state != 'confirmed'"/>
+                        <button string="Close" class="btn-secondary" special="cancel"/>
+                    </footer>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_pos_packaged_card_search" model="ir.ui.view">
+        <field name="name">pos.packaged.card.search</field>
+        <field name="model">pos.packaged.card</field>
+        <field name="arch" type="xml">
+            <search string="POS Packaged Cards">
+                <field name="product_id"/>
+                <field name="used_uom_id"/>
+                <field name="order_id"/>
+                <filter string="New Orders" name="new" domain="[('state','=','new')]"/>
+                <filter string="Confirmed Orders" name="confirmed" domain="[('state','=','confirmed')]"/>
+                <filter string="Done" name="done" domain="[('state','=','done')]"/>
+                <group expand="0" string="Group By">
+                    <filter name="group_state" string="State" context="{'group_by':'state'}"/>
+                    <filter name="group_product" string="Product" context="{'group_by':'product_id'}"/>
+                    <filter name="group_uom" string="Used UoM" context="{'group_by':'used_uom_id'}"/>
+                    <filter name="group_order" string="Order" context="{'group_by':'order_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_pos_packaged_card_board" model="ir.actions.act_window">
+        <field name="name">POS Packaged Delivery Board</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">pos.packaged.card</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="context">{'search_default_new': 1}</field>
+    </record>
+
+    <menuitem id="menu_pos_packaged_delivery_root" name="POS Packaged Delivery" parent="point_of_sale.menu_point_root"/>
+    <menuitem id="menu_pos_packaged_delivery_board" name="POS Packaged Delivery Board"
+              parent="menu_pos_packaged_delivery_root" action="action_pos_packaged_card_board"/>
+</odoo>
