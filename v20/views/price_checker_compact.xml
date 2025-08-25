@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <data>
+    <record id="price_checker_wizard_form_compact" model="ir.ui.view">
+      <field name="name">price.checker.wizard.form.compact</field>
+      <field name="model">price.checker.wizard</field>
+      <field name="inherit_id" ref="view_price_checker_wizard_form"/>
+      <field name="priority" eval="50"/>
+      <field name="arch" type="xml">
+        <!-- Remove Pricelist & Customer fields -->
+        <xpath expr="//field[@name='pricelist_id']" position="replace"/>
+        <xpath expr="//field[@name='partner_id']" position="replace"/>
+      </field>
+    </record>
+  </data>
+</odoo>
