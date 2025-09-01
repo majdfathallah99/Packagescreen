@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_price_checker_wizard_form" model="ir.ui.view">
+        <field name="name">price.checker.wizard.form</field>
+        <field name="model">price.checker.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Price Checker / فاحص الأسعار">
+                <group>
+                    <group>
+                        <field name="barcode" placeholder="Scan / امسح الباركود" required="1"/>
+                    </group>
+                </group>
+
+                <separator string="Result / النتيجة"/>
+
+                <group>
+                    <group>
+                        <field name="name_html" widget="html" nolabel="1"/>
+                        <field name="barcode_html" widget="html" nolabel="1"/>
+                        <field name="price_html" widget="html" nolabel="1"/>
+                        <field name="uom_html" widget="html" nolabel="1"/>
+                        <field name="other_uoms_html" widget="html" string="Other UoMs / وحدات أخرى"/>
+                        <field name="currency_id" invisible="1"/>
+                    </group>
+                </group>
+
+                <footer>
+                    <button string="Close / إغلاق" class="btn-link" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>
