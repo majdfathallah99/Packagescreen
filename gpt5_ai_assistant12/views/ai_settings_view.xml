@@ -1,0 +1,24 @@
+<odoo>
+  <record id="view_ai_assistant_settings_form" model="ir.ui.view">
+    <field name="name">ai.assistant.settings.form</field>
+    <field name="model">ai.assistant.settings</field>
+    <field name="arch" type="xml">
+      <form string="GPT-5 Assistant Settings">
+        <group>
+          <group>
+            <field name="ai_api_key" password="True" placeholder="sk-..."/>
+            <field name="ai_model" placeholder="gpt-4o-mini"/>
+          </group>
+          <group>
+            <field name="ai_base_url" placeholder="http://127.0.0.1:1234/v1"/>
+            <field name="ai_system_prompt" placeholder="System instructions..."/>
+          </group>
+        </group>
+        <footer>
+          <button string="Save" type="object" name="set_values" class="btn-primary"/>
+          <button string="Cancel" class="btn-secondary" special="cancel"/>
+        </footer>
+      </form>
+    </field>
+  </record>
+</odoo>
