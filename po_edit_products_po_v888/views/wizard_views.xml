@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_po_edit_products_wizard_form" model="ir.ui.view">
+        <field name="name">po.edit.products.wizard.form</field>
+        <field name="model">po.edit.products.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Edit Products">
+                <group>
+                    <field name="purchase_id" readonly="1"/>
+                </group>
+                <notebook>
+                    <page string="Products">
+                        <field name="line_ids">
+                            <list string="Products" editable="bottom" create="0" delete="0">
+                                <field name="product_id" readonly="1"/>
+                                <field name="uom_id"/>
+                                <field name="sale_price"/>
+                                <field name="price_in_uom"/>
+                                <field name="cost_price"/>
+                            </list>
+                        </field>
+                    </page>
+                    <page string="Packagings">
+                        <field name="pkg_line_ids">
+                            <list string="Packagings" editable="bottom" create="0" delete="0">
+                                <field name="product_id"/>
+                                <field name="name"/>
+                                <field name="qty"/>
+                                <field name="pkg_uom_id"/>
+                                <field name="package_price"/>
+                                <field name="unit_price_from_package"/>
+                            </list>
+                        </field>
+                    </page>
+                </notebook>
+                <footer>
+                    <button string="Apply" type="object" name="action_apply" class="btn-primary"/>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>
