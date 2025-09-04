@@ -1,0 +1,23 @@
+<odoo>
+  <data noupdate="0">
+    <record id="action_ai_assistant_settings" model="ir.actions.act_window">
+      <field name="name">GPT-5 Assistant Settings</field>
+      <field name="res_model">ai.assistant.settings</field>
+      <field name="view_mode">form</field>
+      <field name="target">current</field>
+    </record>
+
+    <record id="action_ai_assistant_page" model="ir.actions.act_url">
+      <field name="name">GPT-5 Assistant</field>
+      <field name="type">ir.actions.act_url</field>
+      <field name="url">/ai_assistant/app</field>
+      <field name="target">self</field>
+    </record>
+
+    <menuitem id="menu_gpt5_assistant_root" name="GPT-5 Assistant" sequence="10"/>
+    <menuitem id="menu_gpt5_assistant_open" name="Chat" parent="menu_gpt5_assistant_root"
+              action="action_ai_assistant_page" sequence="1"/>
+    <menuitem id="menu_gpt5_assistant_settings" name="Settings" parent="menu_gpt5_assistant_root"
+              action="action_ai_assistant_settings" sequence="99" groups="base.group_system"/>
+  </data>
+</odoo>
