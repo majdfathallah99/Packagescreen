@@ -1,0 +1,12 @@
+<odoo>
+  <template id="page_min" name="GPT-5 Assistant Minimal">
+    <t t-call="web.layout">
+      <t t-set="title">GPT-5 Assistant</t>
+      <div class="o_container mt16">
+        <h2>It works ✅</h2>
+        <p>This is the minimal page (no JS). If you can see this, routes and templates are fine.</p>
+        <p>Ping check: <a href="/ai_assistant/ping" target="_blank">/ai_assistant/ping</a></p>
+      </div>
+    </t>
+  </template>
+</odoo>
