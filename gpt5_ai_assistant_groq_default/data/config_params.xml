@@ -1,0 +1,17 @@
+<odoo>
+  <data noupdate="0">
+    <!-- Defaults for Groq -->
+    <record id="conf_ai_key" model="ir.config_parameter">
+      <field name="key">ai_assistant.openai_base_url</field>
+      <field name="value">https://api.groq.com/openai/v1</field>
+    </record>
+    <record id="conf_ai_model" model="ir.config_parameter">
+      <field name="key">ai_assistant.model</field>
+      <field name="value">llama-3.1-70b-versatile</field>
+    </record>
+    <record id="conf_ai_danger" model="ir.config_parameter">
+      <field name="key">ai_assistant.danger_mode</field>
+      <field name="value">false</field>
+    </record>
+  </data>
+</odoo>
