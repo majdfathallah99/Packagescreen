@@ -464,21 +464,25 @@ def _html_page(body, title="GPT-5 Assistant"):
       });
       const raw  = await r.json();
       const data = (raw && typeof raw==='object' && 'result' in raw) ? raw.result : raw;
-      const reply = (data && data.reply) or (data and data.error and ('\\u26A0 '+data.error)) or '(no reply)';
-      append('Assistant', reply);
-      if(data && data.reply){
-        // pause ASR while speaking, then resume if Live is active
-        const prev = window.__liveActive;
-        window.__liveActive = false;
-        await speak(data.reply);
-        window.__resumeAfterTTS = function(){ if(prev) startLive(true); };
+      let replyText = '(no reply)';
+      if (data && typeof data.reply === 'string') {
+        replyText = data.reply;
+      } else if (data && data.error) {
+        replyText = '⚠ ' + data.error;
+      }
+      append('Assistant', replyText);
+      if (data && data.reply) {
+        const wasLive = window.__liveActive === true;
+        window.__liveActive = false; // pause ASR while TTS
+        const u = await speak(data.reply);
+        window.__resumeAfterTTS = function(){ if(wasLive) startLive(true); };
       }
     }catch(e){
       append('Assistant','⚠ network error');
     }
   }
 
-  // Form AJAX
+  // Form AJAX (no page reload)
   (function(){
     const form = document.getElementById('ai_form');
     if(!form) return;
@@ -498,6 +502,7 @@ def _html_page(body, title="GPT-5 Assistant"):
       rec.lang = (navigator.language||'en-US'); rec.continuous = false; rec.interimResults = true;
       let finalText = '', interim = '';
       micBtn.addEventListener('click', function(){
+        if (!window.isSecureContext) { alert('Voice input requires HTTPS.'); return; }
         try{ setStatus('Listening…'); finalText=''; interim=''; rec.start(); }catch(e){ setStatus(''); }
       });
       rec.onresult = function(ev){
@@ -520,6 +525,7 @@ def _html_page(body, title="GPT-5 Assistant"):
 
   function startLive(resume){
     if(!SR){ setStatus('speech API not supported'); return; }
+    if (!window.isSecureContext) { alert('Live voice requires HTTPS.'); return; }
     window.__liveActive = true;
     if(recog){ try{recog.stop();}catch(e){} recog=null; }
     recog = new SR();
@@ -528,9 +534,14 @@ def _html_page(body, title="GPT-5 Assistant"):
     let finalText = '', interim = '';
     recog.onstart = function(){ setStatus('listening…'); };
     recog.onerror = function(){ setStatus('error'); };
-    recog.onend   = function(){ setStatus(window.__liveActive ? 'restarting…' : 'idle'); if(window.__liveActive && !ttsSpeaking){ try{recog.start();}catch(e){} } };
+    recog.onend   = function(){
+      setStatus(window.__liveActive ? 'restarting…' : 'idle');
+      if(window.__liveActive && !ttsSpeaking){
+        try{recog.start();}catch(e){}
+      }
+    };
     recog.onresult = function(ev){
-      if(ttsSpeaking) return; // ignore while TTS is speaking
+      if(ttsSpeaking) return; // ignore while speaking
       for(let i=ev.resultIndex;i<ev.results.length;i++){
         const r = ev.results[i], t=r[0].transcript;
         if(r.isFinal) finalText += ' ' + t; else interim = t;
@@ -540,7 +551,6 @@ def _html_page(body, title="GPT-5 Assistant"):
       if(last && last.isFinal){
         const out = dedupe(finalText).trim();
         if(out){
-          // stop ASR while sending and speaking
           try{ recog.stop(); }catch(e){}
           input.value = out;
           sendAjax(out);
@@ -762,7 +772,7 @@ button{padding:6px 12px;margin-right:6px}
   <button id="stop">Stop</button>
 </div>
 <script>
-/* Same client logic as Chat page (continuous ASR + TTS) */
+/* Kept minimal; Chat page already contains the full logic */
 </script>
 </body></html>'''
         return request.make_response(html, headers=[('Content-Type','text/html; charset=utf-8')])
