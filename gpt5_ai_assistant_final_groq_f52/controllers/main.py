@@ -364,7 +364,7 @@ def _ai_reply(user_text):
         return content
 
 def _html_page(body, title="GPT-5 Assistant"):
-    # Safe token replacement to avoid % / {} collisions
+    # token replace (avoids % conflicts)
     tpl = """<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"/>
@@ -379,7 +379,7 @@ __BODY__
 <p><a href="/ai_assistant">Chat</a> • <a href="/ai_assistant/settings">Settings</a> • <a href="/ai_assistant/clear">New chat</a> • <a href="/ai_assistant/diag">Diagnostics</a> • <a href="/ai_assistant/export">Export</a></p>
 </div>
 <script>(function(){
-  // ------- Voice + Live logic (echo-safe) -------
+  // ===== Voice/TTS/ASR with Arabic support & echo protection =====
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const micBtn  = document.getElementById('mic');
   const liveBtn = document.getElementById('live');
@@ -387,7 +387,8 @@ __BODY__
   const vstatus = document.getElementById('vstatus');
   const input   = document.getElementById('msg');
   const logEl   = document.getElementById('log');
-  const form    = document.getElementById('ai_form');
+  const formEl  = document.getElementById('ai_form');
+  const langSel = document.getElementById('sr_lang'); // new language selector
 
   function setStatus(t){ if(vstatus) vstatus.textContent = t; }
   function append(who, txt){
@@ -398,15 +399,10 @@ __BODY__
     logEl.appendChild(div); logEl.scrollTop = logEl.scrollHeight;
   }
 
+  function isArabicText(s){ return /[\\u0600-\\u06FF]/.test(s||''); }
   function detectLang(s){
-    if(!s) return (navigator.language||'en').slice(0,2);
-    if(/[\\u0600-\\u06FF]/.test(s)) return 'ar';
-    if(/[\\u0400-\\u04FF]/.test(s)) return 'ru';
-    if(/[\\u4E00-\\u9FFF]/.test(s)) return 'zh';
-    if(/[\\u0900-\\u097F]/.test(s)) return 'hi';
-    if(/[\\u3040-\\u30FF]/.test(s)) return 'ja';
-    if(/[\\uAC00-\\uD7AF]/.test(s)) return 'ko';
-    return 'en';
+    if(isArabicText(s)) return 'ar';
+    return (navigator.language||'en').slice(0,2);
   }
   function pickVoice(lang2){
     try{
@@ -416,7 +412,7 @@ __BODY__
       let v = null;
       for (const vv of voices){
         const l=(vv.lang||'').toLowerCase(), n=(vv.name||'').toLowerCase();
-        if(l.startsWith(tgt) || (tgt==='ar' && n.includes('arab'))) { v = vv; break; }
+        if(l.startsWith(tgt) || (tgt==='ar' && n.includes('arab'))){ v = vv; break; }
         if(!v && (l.includes(tgt)||n.includes(tgt))) v = vv;
       }
       return v || voices[0] || null;
@@ -435,11 +431,7 @@ __BODY__
     });
   }
   function norm(s){
-    return (s||'')
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu,' ')
-      .replace(/\\s+/g,' ')
-      .trim();
+    return (s||'').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\\s+/g,' ').trim();
   }
   function looksLikeEcho(candidate, lastAssistant){
     const a = norm(candidate), b = norm(lastAssistant);
@@ -452,6 +444,16 @@ __BODY__
     return (ratio >= 0.8 && Math.min(a.length,b.length) >= 12);
   }
 
+  // ---- Language picker (Auto / Arabic / English) ----
+  function chosenLangCode(){
+    const v = langSel ? (langSel.value||'auto') : 'auto';
+    if (v === 'ar') return 'ar-SA';
+    if (v === 'en') return 'en-US';
+    // auto -> use browser default
+    const nav = (navigator.language||'en-US');
+    return nav || 'en-US';
+  }
+
   let recog = null;
   window.__liveActive = false;
   window.__asrPausedByTTS = false;
@@ -462,11 +464,10 @@ __BODY__
     try{ window.speechSynthesis.cancel(); }catch(e){}
     await waitVoices();
 
-    // Pause ASR while speaking to prevent feedback
     window.__asrPausedByTTS = true;
     if(recog){ try{recog.stop();}catch(e){} }
 
-    const lang2 = detectLang(text||'');
+    const lang2 = isArabicText(text||'') ? 'ar' : detectLang(text||'');
     const u = new SpeechSynthesisUtterance(text||'');
     const v = pickVoice(lang2);
     if(v){ u.voice=v; u.lang=v.lang; } else { u.lang = (lang2==='ar'?'ar-SA':'en-US'); }
@@ -475,7 +476,6 @@ __BODY__
     u.onend = function(){
       window.__asrPausedByTTS = false;
       if(window.__liveActive){
-        // small delay to avoid tail pickup
         setTimeout(function(){ try{ startLive(true); }catch(e){} }, 250);
       }
     };
@@ -505,8 +505,6 @@ __BODY__
 
       if (data && data.reply) {
         window.__lastAssistantText = data.reply;
-        const wasLive = window.__liveActive;
-        window.__liveActive = wasLive; // keep flag
         await speak(data.reply);
       }
     }catch(e){
@@ -514,8 +512,6 @@ __BODY__
     }
   }
 
-  // Submit (no page reload)
-  const formEl = document.getElementById('ai_form');
   if (formEl){
     formEl.addEventListener('submit', function(ev){
       ev.preventDefault();
@@ -536,15 +532,16 @@ __BODY__
     return s;
   }
 
-  // Quick mic (single shot)
+  // Quick mic (single shot) — respects language selector
   if (micBtn && SR){
     try{
       const rec = new SR();
-      rec.lang=(navigator.language||'en-US'); rec.continuous=false; rec.interimResults=true;
+      rec.lang = chosenLangCode();
+      rec.continuous=false; rec.interimResults=true;
       let finalText='', interim='';
       micBtn.addEventListener('click', function(){
         if (!window.isSecureContext) { alert('Voice input requires HTTPS.'); return; }
-        try{ setStatus('Listening…'); finalText=''; interim=''; rec.start(); }catch(e){ setStatus(''); }
+        try{ setStatus('Listening…'); finalText=''; interim=''; rec.lang = chosenLangCode(); rec.start(); }catch(e){ setStatus(''); }
       });
       rec.onresult = function(ev){
         for(let i=ev.resultIndex;i<ev.results.length;i++){
@@ -560,7 +557,7 @@ __BODY__
     micBtn.addEventListener('click', function(){ alert('Voice input not supported in this browser.'); });
   }
 
-  // Live mic (continuous) with echo protection
+  // Live mic (continuous) — respects selector + auto-switch to Arabic
   function startLive(resume){
     if(!SR){ setStatus('speech API not supported'); return; }
     if (!window.isSecureContext) { alert('Live voice requires HTTPS.'); return; }
@@ -569,7 +566,7 @@ __BODY__
 
     recog = new SR();
     recog.continuous = true; recog.interimResults = true;
-    recog.lang = (navigator.language||'en-US');
+    recog.lang = chosenLangCode(); // initial language from picker
     let finalText='', interim='';
 
     recog.onstart = function(){ setStatus('listening…'); };
@@ -582,24 +579,30 @@ __BODY__
       }
     };
     recog.onresult = function(ev){
-      if(window.__asrPausedByTTS) return; // hard gate
+      if(window.__asrPausedByTTS) return;
       for(let i=ev.resultIndex;i<ev.results.length;i++){
         const r=ev.results[i], t=r[0].transcript;
         if(r.isFinal) finalText += ' ' + t; else interim = t;
       }
+
+      // If user chose Auto and we detect Arabic letters, switch recog.lang to ar-SA
+      if ((langSel && langSel.value === 'auto') && isArabicText(finalText+interim) && recog.lang !== 'ar-SA') {
+        try{ recog.stop(); }catch(e){}
+        recog.lang = 'ar-SA';
+        try{ recog.start(); }catch(e){}
+        return; // let it resume with new lang
+      }
+
       if(input) input.value = dedupe((finalText + ' ' + interim).trim());
       const last = ev.results[ev.results.length-1];
       if(last && last.isFinal){
         const out = dedupe(finalText).trim();
         finalText=''; interim='';
         if(!out) return;
-
-        // Echo filter: skip if looks like our own last reply
         if (looksLikeEcho(out, window.__lastAssistantText)) {
           if(input) input.value = '';
           return;
         }
-
         try{ recog.stop(); }catch(e){}
         if(input) input.value = out;
         sendAjax(out);
@@ -652,6 +655,7 @@ class AIAssistantController(http.Controller):
             return f"<div><b>{who}:</b><pre style='white-space:pre-wrap'>{content}</pre></div>"
 
         chat_html = "".join(render_msg(m) for m in history)
+        # Added language drop-down (Auto / Arabic / English)
         form = """
         <form id="ai_form" method="post" action="/ai_assistant">
             <label>Message</label><br/>
@@ -660,7 +664,14 @@ class AIAssistantController(http.Controller):
             <button type="button" id="mic" title="Voice input (browser)">🎤</button>
             <button type="button" id="live" title="Live voice chat (continuous)">🎙 Live</button>
             <button type="button" id="stop" title="Stop listening">⏹ Stop</button>
-            <span id="vstatus" style="font-size:90%%"></span>
+            <span id="vstatus" style="font-size:90%%;margin-left:8px;">idle</span>
+            <span style="margin-left:12px;font-size:90%%">Voice input language:
+              <select id="sr_lang">
+                <option value="auto" selected>Auto</option>
+                <option value="ar">Arabic (ar-SA)</option>
+                <option value="en">English (en-US)</option>
+              </select>
+            </span>
         </form>
         """
         body = f"""
