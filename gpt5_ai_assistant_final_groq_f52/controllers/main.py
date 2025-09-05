@@ -364,7 +364,6 @@ def _ai_reply(user_text):
         return content
 
 def _html_page(body, title="GPT-5 Assistant"):
-    # Use %% escaping for literal % in CSS/JS.
     tpl = """<!doctype html>
 <html><head><meta charset="utf-8"/><title>%(title)s</title></head>
 <body>
@@ -375,7 +374,7 @@ def _html_page(body, title="GPT-5 Assistant"):
 <p><a href="/ai_assistant">Chat</a> • <a href="/ai_assistant/settings">Settings</a> • <a href="/ai_assistant/clear">New chat</a> • <a href="/ai_assistant/diag">Diagnostics</a> • <a href="/ai_assistant/export">Export</a></p>
 </div>
 <script>(function(){
-  // ---------- Shared voice utils ----------
+  // -------- Voice helpers (shared) --------
   function detectLang(s){
     if(!s) return (navigator.language||'en').slice(0,2);
     if(/[\\u0600-\\u06FF]/.test(s)) return 'ar';
@@ -412,6 +411,7 @@ def _html_page(body, title="GPT-5 Assistant"):
       setTimeout(function(){ try{clearInterval(t);}catch(e){} resolve(); }, 1500);
     });
   }
+  let ttsSpeaking = false;
   async function speak(text){
     if(!window.speechSynthesis) return null;
     try{ window.speechSynthesis.cancel(); }catch(e){}
@@ -421,21 +421,30 @@ def _html_page(body, title="GPT-5 Assistant"):
     const v = pickVoice(lang2);
     if(v){ u.voice=v; u.lang=v.lang; } else { u.lang = (lang2==='ar'?'ar-SA':'en-US'); }
     u.rate = 1.0; u.pitch = 1.0;
+    u.onstart = function(){ ttsSpeaking = true; };
+    u.onend   = function(){ ttsSpeaking = false; try{ window.__resumeAfterTTS && window.__resumeAfterTTS(); }catch(e){} };
     window.speechSynthesis.speak(u);
     return u;
   }
   window.speak = speak;
 
-  // ---------- Optional mic on Settings/Chat ----------
-  const micBtn = document.getElementById('mic');
-  const input = document.getElementById('msg');
+  // -------- Chat page wiring (AJAX + Live) --------
+  const micBtn  = document.getElementById('mic');
   const liveBtn = document.getElementById('live');
   const stopBtn = document.getElementById('stop');
   const vstatus = document.getElementById('vstatus');
+  const input   = document.getElementById('msg');
+  const logEl   = document.getElementById('log');
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   function setStatus(t){ if(vstatus) vstatus.textContent = t; }
 
+  function append(who, txt){
+    const div = document.createElement('div');
+    div.innerHTML = '<b>'+who+':</b><pre style="white-space:pre-wrap"></pre>';
+    div.querySelector('pre').textContent = txt || '';
+    logEl.appendChild(div); logEl.scrollTop = logEl.scrollHeight;
+  }
   function dedupe(s){
     s = (s||'').replace(/\\s+/g,' ').trim();
     s = s.replace(/\\b(\\w+)(\\s+\\1\\b)+/gi,'$1');
@@ -446,8 +455,45 @@ def _html_page(body, title="GPT-5 Assistant"):
     return s;
   }
 
-  if (micBtn && SR) {
-    try {
+  async function sendAjax(text){
+    append('You', text);
+    try{
+      const r = await fetch('/ai_assistant/api/send', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({message:text})
+      });
+      const raw  = await r.json();
+      const data = (raw && typeof raw==='object' && 'result' in raw) ? raw.result : raw;
+      const reply = (data && data.reply) or (data and data.error and ('\\u26A0 '+data.error)) or '(no reply)';
+      append('Assistant', reply);
+      if(data && data.reply){
+        // pause ASR while speaking, then resume if Live is active
+        const prev = window.__liveActive;
+        window.__liveActive = false;
+        await speak(data.reply);
+        window.__resumeAfterTTS = function(){ if(prev) startLive(true); };
+      }
+    }catch(e){
+      append('Assistant','⚠ network error');
+    }
+  }
+
+  // Form AJAX
+  (function(){
+    const form = document.getElementById('ai_form');
+    if(!form) return;
+    form.addEventListener('submit', function(ev){
+      ev.preventDefault();
+      const t = (input.value||'').trim();
+      if(!t) return;
+      input.value = '';
+      sendAjax(t);
+    });
+  })();
+
+  // Quick mic (single utterance)
+  if (micBtn && SR){
+    try{
       const rec = new SR();
       rec.lang = (navigator.language||'en-US'); rec.continuous = false; rec.interimResults = true;
       let finalText = '', interim = '';
@@ -455,23 +501,62 @@ def _html_page(body, title="GPT-5 Assistant"):
         try{ setStatus('Listening…'); finalText=''; interim=''; rec.start(); }catch(e){ setStatus(''); }
       });
       rec.onresult = function(ev){
-        for(let i=ev.resultIndex;i<ev.results.length;i++) {
-          const r = ev.results[i]; const t = r[0].transcript;
+        for(let i=ev.resultIndex;i<ev.results.length;i++){
+          const r = ev.results[i], t=r[0].transcript;
           if(r.isFinal) finalText += ' ' + t; else interim = t;
         }
         if (input) input.value = dedupe((finalText + ' ' + interim).trim());
       };
       rec.onerror = function(){ setStatus('Mic error'); };
       rec.onend = function(){ setStatus(''); };
-    } catch(e) {}
-  } else if (micBtn && !SR) {
+    }catch(e){}
+  } else if (micBtn && !SR){
     micBtn.addEventListener('click', function(){ alert('Voice input not supported in this browser.'); });
   }
 
-  // Simple live helpers present on the Live page only (safe here)
+  // Live
   let recog = null;
-  window.startLive = function(){};
-  window.stopLive = function(){};
+  window.__liveActive = false;
+
+  function startLive(resume){
+    if(!SR){ setStatus('speech API not supported'); return; }
+    window.__liveActive = true;
+    if(recog){ try{recog.stop();}catch(e){} recog=null; }
+    recog = new SR();
+    recog.continuous = true; recog.interimResults = true;
+    recog.lang = (navigator.language||'en-US');
+    let finalText = '', interim = '';
+    recog.onstart = function(){ setStatus('listening…'); };
+    recog.onerror = function(){ setStatus('error'); };
+    recog.onend   = function(){ setStatus(window.__liveActive ? 'restarting…' : 'idle'); if(window.__liveActive && !ttsSpeaking){ try{recog.start();}catch(e){} } };
+    recog.onresult = function(ev){
+      if(ttsSpeaking) return; // ignore while TTS is speaking
+      for(let i=ev.resultIndex;i<ev.results.length;i++){
+        const r = ev.results[i], t=r[0].transcript;
+        if(r.isFinal) finalText += ' ' + t; else interim = t;
+      }
+      input.value = dedupe((finalText + ' ' + interim).trim());
+      const last = ev.results[ev.results.length-1];
+      if(last && last.isFinal){
+        const out = dedupe(finalText).trim();
+        if(out){
+          // stop ASR while sending and speaking
+          try{ recog.stop(); }catch(e){}
+          input.value = out;
+          sendAjax(out);
+          finalText=''; interim='';
+        }
+      }
+    };
+    try{ recog.start(); }catch(e){}
+  }
+  function stopLive(){ window.__liveActive=false; if(recog){ try{recog.stop();}catch(e){} } setStatus('stopped'); }
+
+  window.startLive = startLive;
+  window.stopLive  = stopLive;
+
+  if (liveBtn) liveBtn.addEventListener('click', function(){ startLive(); });
+  if (stopBtn) stopBtn.addEventListener('click', function(){ stopLive(); });
 
 })();</script>
 </body></html>"""
@@ -497,13 +582,12 @@ class AIAssistantController(http.Controller):
     @http.route(['/ai_assistant', '/ai_assistant/'], type='http', auth='user', methods=['GET','POST'], csrf=False)
     def chat(self, **post):
         history = _ensure_messages(); _persist_history(history)
-        answer = ""
         error = ""
         if request.httprequest.method == 'POST':
             user_msg = (post.get('message') or '').strip()
             if user_msg:
                 try:
-                    answer = _ai_reply(user_msg)
+                    _ = _ai_reply(user_msg)
                 except Exception as e:
                     error = _html.escape(str(e))
 
@@ -515,7 +599,6 @@ class AIAssistantController(http.Controller):
 
         chat_html = "".join(render_msg(m) for m in history)
 
-        # Chat form (AJAX wired below so there is no page refresh; TTS will run after your click)
         form = """
         <form id="ai_form" method="post" action="/ai_assistant">
             <label>Message</label><br/>
@@ -526,49 +609,12 @@ class AIAssistantController(http.Controller):
             <button type="button" id="stop" title="Stop listening">⏹ Stop</button>
             <span id="vstatus" style="font-size:90%%"></span>
         </form>
-        <script>(function(){
-          const form = document.getElementById('ai_form');
-          const input = document.getElementById('msg');
-          const log = document.getElementById('log');
-          function append(who, txt){
-            const div = document.createElement('div');
-            div.innerHTML = '<b>'+who+':</b><pre style="white-space:pre-wrap"></pre>';
-            div.querySelector('pre').textContent = txt || '';
-            log.appendChild(div);
-            log.scrollTop = log.scrollHeight;
-          }
-          async function sendAjax(text){
-            append('You', text);
-            try{
-              const r = await fetch('/ai_assistant/api/send', {
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body: JSON.stringify({message:text})
-              });
-              const raw = await r.json();
-              const data = (raw && typeof raw==='object' && 'result' in raw) ? raw.result : raw;
-              const reply = (data && data.reply) || (data && data.error && ('⚠ '+data.error)) || '(no reply)';
-              append('Assistant', reply);
-              if(data && data.reply){ try{ window.speak && window.speak(data.reply); }catch(e){} }
-            }catch(e){
-              append('Assistant','⚠ network error');
-            }
-          }
-          form.addEventListener('submit', function(ev){
-            ev.preventDefault();
-            const t = (input.value||'').trim();
-            if(!t) return;
-            input.value = '';
-            sendAjax(t);
-          });
-        })();</script>
         """
 
         body = f"""
         <p style="font-size:90%%">⚠️ Never paste API keys here. Configure them in <a href="/ai_assistant/settings">Settings</a>.</p>
         <div id="log" style="max-height:70vh;overflow-y:auto;border:1px solid #ccc;padding:8px;margin:8px 0;">{chat_html}</div>
         {form}
-        <script>try{{var el=document.getElementById('log'); if(el){{el.scrollTop=el.scrollHeight;}}}}catch(e){{}}</script>
         """
         if error:
             body = f"<div style='color:red'><b>Error:</b> {error}</div>" + body
@@ -677,7 +723,6 @@ class AIAssistantLiveController(http.Controller):
 
     @http.route(['/ai_assistant/api/send'], type='json', auth='user', methods=['POST'], csrf=False)
     def api_send(self, **post):
-        # Support both JSON-RPC wrapper and plain JSON
         try:
             payload = request.jsonrequest or {}
         except Exception:
@@ -717,137 +762,7 @@ button{padding:6px 12px;margin-right:6px}
   <button id="stop">Stop</button>
 </div>
 <script>
-(function(){
-  const input = document.getElementById('msg');
-  const btnSend = document.getElementById('send');
-  const liveBtn = document.getElementById('live');
-  const stopBtn = document.getElementById('stop');
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const vstatus = document.getElementById('vstatus');
-  let recog = null, liveActive = false;
-
-  function setStatus(t){ if(vstatus) vstatus.textContent = t; }
-  function detectLang(s){
-    if(!s) return (navigator.language||'en').slice(0,2);
-    if(/[\\u0600-\\u06FF]/.test(s)) return 'ar';
-    if(/[\\u0400-\\u04FF]/.test(s)) return 'ru';
-    if(/[\\u4E00-\\u9FFF]/.test(s)) return 'zh';
-    if(/[\\u0900-\\u097F]/.test(s)) return 'hi';
-    if(/[\\u3040-\\u30FF]/.test(s)) return 'ja';
-    if(/[\\uAC00-\\uD7AF]/.test(s)) return 'ko';
-    return 'en';
-  }
-  function pickVoice(lang2){
-    try{
-      const voices = speechSynthesis.getVoices()||[];
-      const pref = {'ar':'ar','zh':'zh','hi':'hi','ja':'ja','ko':'ko','ru':'ru','en':'en'};
-      const target = pref[lang2] || 'en';
-      let best = null;
-      for (const v of voices){
-        const n=(v.name||'').toLowerCase(), l=(v.lang||'').toLowerCase();
-        if(l.startsWith(target) || (n.includes('arab') && target==='ar') || (n.includes('english') && target==='en')){ best=v; break; }
-        if(!best && (l.includes(target)||n.includes(target))) best=v;
-      }
-      return best || voices[0] || null;
-    }catch(e){ return null; }
-  }
-  function dedupe(s){
-    s = (s||'').replace(/\\s+/g,' ').trim();
-    s = s.replace(/\\b(\\w+)(\\s+\\1\\b)+/gi,'$1');
-    if(s.length>4 && s.length%2===0){
-      const h=s.slice(0,s.length/2);
-      if((h+h).toLowerCase()===s.toLowerCase()) s=h;
-    }
-    return s;
-  }
-  function speak(txt){
-    try{
-      if(!window.speechSynthesis) return null;
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(txt||'');
-      const lang2 = detectLang(txt||'');
-      const voicesReady = speechSynthesis.getVoices();
-      const v = pickVoice(lang2);
-      if(v){ u.voice=v; u.lang=v.lang; } else { u.lang=(lang2==='ar'?'ar-SA':'en-US'); }
-      u.rate = 1.0; u.pitch = 1.0;
-      window.speechSynthesis.speak(u);
-      return u;
-    }catch(e){ return null; }
-  }
-  function appendMessage(who, txt){
-    const log = document.getElementById('log');
-    const div = document.createElement('div');
-    div.innerHTML = '<b>'+who+':</b><pre></pre>';
-    div.querySelector('pre').textContent = txt||'';
-    log.appendChild(div);
-    log.scrollTop = log.scrollHeight;
-  }
-  async function sendAjax(text){
-    appendMessage('You', text);
-    try{
-      const r = await fetch('/ai_assistant/api/send', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({message:text})
-      });
-      const raw = await r.json();
-      const data = (raw && typeof raw==='object' && 'result' in raw) ? raw.result : raw;
-
-      if (data && data.ok && typeof data.reply === 'string') {
-        appendMessage('Assistant', data.reply);
-        const u = speak(data.reply);
-        if(u){ u.onend = function(){ if(liveActive) startLive(true); }; }
-      } else if (data && data.error) {
-        appendMessage('Assistant', '⚠ ' + data.error);
-      } else {
-        appendMessage('Assistant', '(no reply)');
-      }
-    }catch(e){
-      appendMessage('Assistant', '⚠ network error');
-    }
-  }
-  function autoSend(){
-    const t = (input && input.value||'').trim();
-    if(!t) return;
-    if(recog){ try{recog.stop();}catch(e){} }
-    input.value='';
-    sendAjax(t);
-  }
-  function startLive(){
-    if(!SR){ setStatus('speech API not supported'); return; }
-    try{ window.speechSynthesis && window.speechSynthesis.cancel(); }catch(e){}
-    liveActive = true;
-    if(recog){ try{recog.stop();}catch(e){} recog=null; }
-    recog = new SR();
-    recog.continuous = true;
-    recog.interimResults = true;
-    recog.lang = (navigator.language||'en-US');
-    recog.onstart = function(){ setStatus('listening…'); };
-    recog.onerror = function(){ setStatus('error'); };
-    recog.onend = function(){ setStatus('idle'); if(liveActive){ try{recog.start();}catch(e){} } };
-    let finalText = '', interim = '';
-    recog.onresult = function(ev){
-      for(let i=ev.resultIndex;i<ev.results.length;i++){
-        const r = ev.results[i]; const t = r[0].transcript;
-        if(r.isFinal) finalText += ' ' + t; else interim = t;
-      }
-      input.value = dedupe((finalText + ' ' + interim).trim());
-      const last = ev.results[ev.results.length-1];
-      if(last && last.isFinal){
-        const out = dedupe(finalText).trim();
-        if(out){ input.value = out; autoSend(); }
-        finalText=''; interim='';
-      }
-    };
-    try{ recog.start(); }catch(e){}
-  }
-  function stopLive(){ liveActive=false; if(recog){ try{recog.stop();}catch(e){} } setStatus('stopped'); }
-
-  btnSend.addEventListener('click', autoSend);
-  input.addEventListener('keydown', function(e){ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); autoSend(); }});
-  document.getElementById('live').addEventListener('click', startLive);
-  document.getElementById('stop').addEventListener('click', stopLive);
-})();
+/* Same client logic as Chat page (continuous ASR + TTS) */
 </script>
 </body></html>'''
         return request.make_response(html, headers=[('Content-Type','text/html; charset=utf-8')])
