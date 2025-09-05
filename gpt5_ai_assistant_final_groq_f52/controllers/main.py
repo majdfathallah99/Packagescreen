@@ -10,13 +10,22 @@ from odoo.http import request
 SYSTEM_PROMPT = """You are an Odoo AI assistant. You can read the user's intent and, when helpful,
 call tools to perform actions inside Odoo (create products/customers, create sale orders, simple reports).
 Always return a concise, helpful answer.
+
+HARD SAFETY:
+- Never call ANY tool that CREATES/UPDATES/DELETES records unless the user explicitly asks (e.g., "create/add/register/new/make/open ..."),
+  or confirms after you ask. Greetings, names, small talk, or general questions are NOT instructions to create anything.
+- If the server blocks a tool call (e.g., returns an error with reason 'blocked_by_server'), apologize and ask for confirmation first.
+
 If a requested action changes data (sell/buy/create), ask for confirmation first unless the configuration
 'AI Assistant: Dangerous/Sudo Mode' is explicitly enabled.
+
 Prefer Arabic if the user writes Arabic; otherwise use English.
 Keep replies short and to the point unless the user asks for details.
 When showing money, include the currency from Odoo if available.
-CRITICAL: Only call tool_create_product when the user asks you to CREATE a product.
-If the user asks for a COUNT like "how many products do I have", call tool_count_products.
+CRITICAL:
+- Only call tool_create_product when user clearly asks to create a product.
+- Only call tool_create_partner when user clearly asks to create/add/register a partner/customer/supplier.
+- Only call tool_create_sale_order when user clearly asks to create a sale order with lines.
 If a tool validation error occurs, fix your arguments and retry once with correct JSON.
 """
 
@@ -24,6 +33,44 @@ AFFIRMATIVE_PATTERNS = {
     "yes","y","yeah","yep","sure","ok","okay","confirm","go ahead","do it",
     "نعم","ايه","أيوه","تمام","أوافق","نفذ","نفّذ","أكيد","أجل","طيب"
 }
+
+# ---------- Intent gate (server-side) ----------
+
+_CREATE_PATTERNS = [
+    r"\bcreate\b", r"\badd\b", r"\bnew\b", r"\bmake\b", r"\bregister\b", r"\bopen\b",
+    r"\bcreate\s+(customer|partner|supplier|product|sale|order)\b",
+    r"\badd\s+(customer|partner|supplier|product|line)\b",
+    r"إنشاء", r"أنشئ", r"انشئ", r"أضف", r"اضف", r"إضافة", r"سجّل", r"سجل",
+    r"زبون\s+جديد", r"عميل\s+جديد", r"مورد\s+جديد", r"منتج\s+جديد", r"طلب\s+بيع\s+جديد",
+    r"أنشئ\s+(عميل|شريك|مورد|منتج|طلب|طلب\s+بيع)",
+    r"اريد\s+إنشاء", r"أريد\s+إنشاء", r"اريد\s+اضافة", r"أريد\s+إضافة",
+]
+
+_SMALL_TALK = [
+    r"\bhello\b", r"\bhi\b", r"\bhey\b", r"\bhow\s+are\s+you\b", r"\bwhat's\s+up\b",
+    r"مرحبا", r"مرحباً", r"اهلا", r"أهلا", r"أهلًا", r"كيف حالك", r"شلونك", r"أخبارك"
+]
+
+def _has_create_intent(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    for pat in _SMALL_TALK:
+        if re.search(pat, t, flags=re.I):
+            return False
+    for pat in _CREATE_PATTERNS:
+        if re.search(pat, t, flags=re.I):
+            return True
+    return False
+
+def _guard_tool(tool_name: str, user_text: str, danger: bool) -> bool:
+    if tool_name in {"tool_count_products", "tool_sales_summary"}:
+        return True
+    if tool_name in {"tool_create_partner", "tool_create_product", "tool_create_sale_order"}:
+        return _has_create_intent(user_text)
+    return True
+
+# ---------- Generic helpers ----------
 
 def _get_conf(key, default=False):
     return request.env['ir.config_parameter'].sudo().get_param(key, default)
@@ -126,7 +173,7 @@ def _assistant_was_confirming() -> bool:
     confirm_cues = ["confirm", "are you sure", "تأكيد", "هل أنت متأكد", "هل تريد", "هل تريد المتابعة"]
     return any(k in last for k in confirm_cues)
 
-# ---- Tool implementations ----
+# ---------- Tools ----------
 
 def tool_create_product(name:str, list_price:float=0.0, uom_name:str="Units", default_code:str=None):
     env = _env(_danger_mode())
@@ -265,20 +312,7 @@ TOOLS_SPEC = [
     }}
 ]
 
-def _run_tool(tool_call):
-    name = tool_call.function.name
-    args = json.loads(tool_call.function.arguments or "{}")
-    if name == "tool_count_products":
-        return tool_count_products(**args)
-    if name == "tool_create_product":
-        return tool_create_product(**args)
-    if name == "tool_create_partner":
-        return tool_create_partner(**args)
-    if name == "tool_create_sale_order":
-        return tool_create_sale_order(**args)
-    if name == "tool_sales_summary":
-        return tool_sales_summary(**args)
-    raise Exception(f"Unknown tool: {name}")
+# ---------- Chat core ----------
 
 def _chat_complete(messages):
     client = _client()
@@ -310,6 +344,7 @@ def _maybe_server_shortcut(user_text:str):
 
 def _ai_reply(user_text):
     history = _ensure_messages(); _persist_history(history)
+
     short = _maybe_server_shortcut(user_text)
     if short:
         history.append({"role":"user","content":user_text}); _persist_history(history)
@@ -324,17 +359,47 @@ def _ai_reply(user_text):
     first = _chat_complete(msgs)
     msg = first.choices[0].message
     history.append({"role":"user","content":user_text}); _persist_history(history)
+
     if getattr(msg, "tool_calls", None):
         tool_msgs = []
+        guard_note_needed = False
         for tc in msg.tool_calls:
             try:
-                result = _run_tool(tc)
+                allowed = _guard_tool(tc.function.name, user_text, _danger_mode())
+                if not allowed:
+                    guard_note_needed = True
+                    tool_msgs.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": json.dumps({"error":"blocked_by_server","reason":"no_explicit_create_intent"})
+                    })
+                    continue
+                args = json.loads(tc.function.arguments or "{}")
+                if tc.function.name == "tool_count_products":
+                    result = tool_count_products(**args)
+                elif tc.function.name == "tool_create_product":
+                    result = tool_create_product(**args)
+                elif tc.function.name == "tool_create_partner":
+                    result = tool_create_partner(**args)
+                elif tc.function.name == "tool_create_sale_order":
+                    result = tool_create_sale_order(**args)
+                elif tc.function.name == "tool_sales_summary":
+                    result = tool_sales_summary(**args)
+                else:
+                    result = {"error": f"Unknown tool {tc.function.name}"}
                 tool_msgs.append({"role":"tool","tool_call_id":tc.id,"content":json.dumps(result, ensure_ascii=False)})
             except Exception as e:
                 tool_msgs.append({"role":"tool","tool_call_id":tc.id,"content":json.dumps({"error":str(e)})})
-        follow = _chat_complete(
-            [{"role":"system","content":SYSTEM_PROMPT}, _danger_system_note()] + history + [{"role":"assistant","content": msg.content or "", "tool_calls": msg.tool_calls}] + tool_msgs
-        )
+
+        follow_msgs = [{"role":"system","content":SYSTEM_PROMPT}, _danger_system_note()] + history + [
+            {"role":"assistant","content": msg.content or "", "tool_calls": msg.tool_calls}
+        ] + tool_msgs
+        if guard_note_needed:
+            follow_msgs.insert(1, {"role":"system","content":
+                "Server refused one or more tool calls because no explicit CREATE intent was detected. "
+                "Do NOT attempt creation unless the user clearly asks or confirms. Offer clarification instead."
+            })
+        follow = _chat_complete(follow_msgs)
         final = follow.choices[0].message
         content = (final.content or "").strip()
         if not content:
@@ -363,273 +428,123 @@ def _ai_reply(user_text):
         _persist_history(history)
         return content
 
+# ---------- HTML helpers ----------
+
 def _html_page(body, title="GPT-5 Assistant"):
     tpl = """<!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>__TITLE__</title>
-</head>
+<html><head><meta charset="utf-8"/><title>{title}</title></head>
 <body>
 <div style="max-width:900px;margin:24px auto;padding:8px;">
-<h2>__TITLE__</h2>
-__BODY__
+<h2>{title}</h2>
+{body}
 <hr/>
-<p><a href="/ai_assistant">Chat</a> • <a href="/ai_assistant/settings">Settings</a> • <a href="/ai_assistant/clear">New chat</a> • <a href="/ai_assistant/diag">Diagnostics</a> • <a href="/ai_assistant/export">Export</a></p>
+<p>
+  <a href="/ai_assistant">Chat</a> •
+  <a href="/ai_assistant/live_chat">Live Voice Chat</a> •
+  <a href="/ai_assistant/settings">Settings</a> •
+  <a href="/ai_assistant/clear">New chat</a> •
+  <a href="/ai_assistant/diag">Diagnostics</a> •
+  <a href="/ai_assistant/export">Export</a>
+</p>
 </div>
-<script>(function(){
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const micBtn  = document.getElementById('mic');
+<script>(function(){{
+  const micBtn = document.getElementById('mic');
+  const input = document.getElementById('msg');
   const liveBtn = document.getElementById('live');
   const stopBtn = document.getElementById('stop');
   const vstatus = document.getElementById('vstatus');
-  const input   = document.getElementById('msg');
-  const logEl   = document.getElementById('log');
-  const formEl  = document.getElementById('ai_form');
-  const langSel = document.getElementById('sr_lang');   // ASR language
-  const ttsSel  = document.getElementById('tts_voice'); // TTS voice
-  const ttsTest = document.getElementById('tts_test');  // Test button
-  const ttsInfo = document.getElementById('tts_info');  // Status
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recog = null, speaking = false;
 
-  function setStatus(t){ if(vstatus) vstatus.textContent = t; }
-  function append(who, txt){
-    if(!logEl) return;
-    const div = document.createElement('div');
-    div.innerHTML = '<b>'+who+':</b><pre style="white-space:pre-wrap"></pre>';
-    div.querySelector('pre').textContent = txt||'';
-    logEl.appendChild(div); logEl.scrollTop = logEl.scrollHeight;
-  }
-
-  function isArabicText(s){ return /[\\u0600-\\u06FF]/.test(s||''); }
-  function detectLang(s){
-    if(isArabicText(s)) return 'ar';
-    return (navigator.language||'en').slice(0,2);
-  }
-
-  function waitVoices(){
-    return new Promise(function(resolve){
-      if(!window.speechSynthesis){ resolve(); return; }
-      let tries = 0;
-      const poll = setInterval(function(){
-        const v = speechSynthesis.getVoices();
-        tries++;
-        if (v && v.length){ clearInterval(poll); resolve(); }
-        if (tries>20){ clearInterval(poll); resolve(); }
-      }, 100);
-      // nudge
-      try{ speechSynthesis.getVoices(); }catch(e){}
-    });
-  }
-
-  function populateVoices(){
-    if (!window.speechSynthesis || !ttsSel) return;
-    const voices = speechSynthesis.getVoices()||[];
-    ttsSel.innerHTML = '<option value="">(Auto)</option>';
-    voices.forEach((v,i)=>{
-      const label = (v.name||'') + ' — ' + (v.lang||'');
-      const opt = document.createElement('option');
-      opt.value = 'idx:'+i;
-      opt.textContent = label;
-      ttsSel.appendChild(opt);
-    });
-    if(ttsInfo){ ttsInfo.textContent = voices.length ? ('voices: '+voices.length) : 'voices: 0'; }
-  }
-
-  function pickVoiceAutoByText(text){
-    try{
-      const voices = speechSynthesis.getVoices()||[];
-      const want = isArabicText(text||'') ? 'ar' : (detectLang(text||'')||'en').slice(0,2);
+  function setStatus(t){{ if(vstatus) vstatus.textContent = t; }}
+  function detectLang(s){{
+    if(!s) return (navigator.language||'en').slice(0,2);
+    if(/[\u0600-\u06FF]/.test(s)) return 'ar';
+    if(/[\u0400-\u04FF]/.test(s)) return 'ru';
+    if(/[\u4E00-\u9FFF]/.test(s)) return 'zh';
+    if(/[\u0900-\u097F]/.test(s)) return 'hi';
+    if(/[\u3040-\u30FF]/.test(s)) return 'ja';
+    if(/[\uAC00-\uD7AF]/.test(s)) return 'ko';
+    return 'en';
+  }}
+  function pickVoice(lang2){{
+    try{{
+      const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+      const pref = {{ar:'ar', zh:'zh', hi:'hi', ja:'ja', ko:'ko', ru:'ru', en:'en'}};
+      const target = pref[lang2] || 'en';
       let best = null;
-      for(const v of voices){
-        const l=(v.lang||'').toLowerCase(), n=(v.name||'').toLowerCase();
-        if(l.startsWith(want) || (want==='ar' && n.includes('arab'))){ best=v; break; }
-        if(!best && (l.includes(want)||n.includes(want))) best=v;
-      }
+      for (const v of voices){{
+        const n=(v.name||'').toLowerCase(), l=(v.lang||'').toLowerCase();
+        if(l.startsWith(target) || (target==='ar' && n.includes('arab'))){{ best=v; break; }}
+        if(!best && (l.includes(target)||n.includes(target))) best=v;
+      }}
       return best || voices[0] || null;
-    }catch(e){ return null; }
-  }
-
-  window.__liveActive = false;
-  window.__asrPausedByTTS = false;
-  window.__lastAssistantText = '';
-
-  async function speak(text){
-    if(!window.speechSynthesis) return null;
-    try{ speechSynthesis.cancel(); }catch(e){}
-    await waitVoices();
-
-    window.__asrPausedByTTS = true;
-    try{ if(window.recog){ window.recog.stop(); } }catch(e){}
-
-    const u = new SpeechSynthesisUtterance(text||'');
-    // preferred voice if selected
-    let v = null;
-    if (ttsSel && ttsSel.value && ttsSel.value.startsWith('idx:')){
-      const idx = parseInt(ttsSel.value.slice(4), 10);
-      const list = speechSynthesis.getVoices()||[];
-      v = list[idx] || null;
-    }
-    if (!v){ v = pickVoiceAutoByText(text||''); }
-    if (v){ u.voice = v; u.lang = v.lang; }
-    else { u.lang = isArabicText(text||'') ? 'ar-SA' : 'en-US'; }
-    u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
-
-    u.onend = function(){
-      window.__asrPausedByTTS = false;
-      if(window.__liveActive){
-        setTimeout(function(){ try{ startLive(true); }catch(e){} }, 250);
-      }
-    };
-    speechSynthesis.speak(u);
-    return u;
-  }
-  window.speak = speak;
-
-  async function sendAjax(text){
-    append('You', text);
-    try{
-      const r = await fetch('/ai_assistant/api/send', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({message:text})
-      });
-      const raw = await r.json();
-      const data = (raw && typeof raw==='object' && 'result' in raw) ? raw.result : raw;
-
-      let replyText = '(no reply)';
-      if (data && typeof data.reply === 'string') replyText = data.reply;
-      else if (data && data.error) replyText = '⚠ ' + data.error;
-
-      append('Assistant', replyText);
-      if (data && data.reply){
-        window.__lastAssistantText = data.reply;
-        await speak(data.reply);
-      }
-    }catch(e){
-      append('Assistant','⚠ network error');
-    }
-  }
-
-  if (formEl){
-    formEl.addEventListener('submit', function(ev){
-      ev.preventDefault();
-      const t = (input && input.value || '').trim();
-      if(!t) return;
-      input.value = '';
-      sendAjax(t);
-    });
-  }
-
-  function dedupe(s){
+    }}catch(e){{ return null; }}
+  }}
+  function speak(text){{
+    try{{
+      if(!window.speechSynthesis) return null;
+      speaking = true;
+      try{{ window.speechSynthesis.cancel(); }}catch(e){{}}
+      if(recog){{ try{{recog.abort();}}catch(e){{}} }}
+      const lang2 = detectLang(text||'');
+      const u = new SpeechSynthesisUtterance(text||'');
+      const v = pickVoice(lang2);
+      if(v){{ u.voice=v; u.lang=v.lang; }} else {{ u.lang=(lang2==='ar'?'ar-SA':'en-US'); }}
+      u.rate = 1.0; u.pitch = 1.0;
+      u.onend = function(){{ speaking = false; }};
+      window.speechSynthesis.speak(u);
+      return u;
+    }}catch(e){{ speaking=false; return null; }}
+  }}
+  function dedupe(s){{
     s = (s||'').replace(/\\s+/g,' ').trim();
-    s = s.replace(/\\b(\\w+)(\\s+\\1\\b)+/gi,'$1');
-    if(s.length>4 && s.length%2===0){
+    s = s.replace(/\\b(\\w+)(\\s+\\1\\b)+/gi, '$1');
+    if(s.length>4 && s.length%2===0){{
       const h=s.slice(0,s.length/2);
       if((h+h).toLowerCase()===s.toLowerCase()) s=h;
-    }
+    }}
     return s;
-  }
+  }}
 
-  // Quick mic (single shot)
-  if (micBtn && SR){
-    try{
+  if (micBtn && SR){{
+    try{{
       const rec = new SR();
-      rec.lang = (navigator.language||'en-US'); rec.continuous=false; rec.interimResults=true;
-      let finalText='', interim='';
-      micBtn.addEventListener('click', function(){
-        if (!window.isSecureContext) { alert('Voice input requires HTTPS.'); return; }
-        try{
-          setStatus('Listening…'); finalText=''; interim='';
-          rec.lang = (langSel?.value==='ar' ? 'ar-SA' : langSel?.value==='en' ? 'en-US' : (navigator.language||'en-US'));
-          rec.start();
-        }catch(e){ setStatus(''); }
-      });
-      rec.onresult = function(ev){
-        for(let i=ev.resultIndex;i<ev.results.length;i++){
-          const r=ev.results[i], t=r[0].transcript;
-          if(r.isFinal) finalText += ' ' + t; else interim = t;
-        }
-        if(input) input.value = dedupe((finalText + ' ' + interim).trim());
-      };
-      rec.onerror = function(){ setStatus('Mic error'); };
-      rec.onend   = function(){ setStatus(''); };
-    }catch(e){}
-  } else if (micBtn && !SR){
-    micBtn.addEventListener('click', function(){ alert('Voice input not supported in this browser.'); });
-  }
+      rec.lang = (navigator.language||'en-US'); rec.continuous = false; rec.interimResults = true;
+      let finalText = '', interim = '';
+      micBtn.addEventListener('click', function(){{
+        try{{ setStatus('Listening…'); finalText=''; interim=''; rec.start(); }}catch(e){{ setStatus(''); }}
+      }});
+      rec.onresult = function(ev){{
+        if(speaking) return;
+        for(let i=ev.resultIndex;i<ev.results.length;i++){{ const r=ev.results[i]; const t=r[0].transcript; if(r.isFinal) finalText += ' '+t; else interim = t; }}
+        if (input) input.value = dedupe((finalText + ' ' + interim).trim());
+      }};
+      rec.onerror = function(){{ setStatus('Mic error'); }};
+      rec.onend = function(){{ setStatus(''); }};
+    }}catch(e){{ }}
+  }} else if (micBtn && !SR) {{
+    micBtn.addEventListener('click', function(){{ alert('Voice input not supported in this browser.'); }});
+  }}
 
-  // Live mic (continuous)
-  function startLive(resume){
-    if(!SR){ setStatus('speech API not supported'); return; }
-    if (!window.isSecureContext) { alert('Live voice requires HTTPS.'); return; }
-    window.__liveActive = true;
-    if(window.recog){ try{window.recog.stop();}catch(e){} window.recog=null; }
+  let lastSpokenHash = '';
+  try{{
+    const ta = document.getElementById('last_assistant_text');
+    const txt = ta ? (ta.value||'').trim() : '';
+    if(txt){{
+      const hash = Array.from(txt).reduce((a,c)=>((a*31 + c.charCodeAt(0))>>>0),0).toString();
+      if(hash !== lastSpokenHash){{ lastSpokenHash = hash; speak(txt); }}
+    }}
+  }}catch(e){{}}
 
-    const rec = new SR(); window.recog = rec;
-    rec.continuous = true; rec.interimResults = true;
-    rec.lang = (langSel?.value==='ar' ? 'ar-SA' : langSel?.value==='en' ? 'en-US' : (navigator.language||'en-US'));
-    let finalText='', interim='';
-
-    rec.onstart = function(){ setStatus('listening…'); };
-    rec.onerror = function(){ setStatus('error'); };
-    rec.onend   = function(){
-      if(window.__liveActive && !window.__asrPausedByTTS){
-        try{ rec.start(); }catch(e){}
-      }else{ setStatus('idle'); }
-    };
-    rec.onresult = function(ev){
-      if(window.__asrPausedByTTS) return;
-      for(let i=ev.resultIndex;i<ev.results.length;i++){
-        const r=ev.results[i], t=r[0].transcript;
-        if(r.isFinal) finalText += ' ' + t; else interim = t;
-      }
-      if ((langSel?.value==='auto') && /[\\u0600-\\u06FF]/.test(finalText+interim) && rec.lang!=='ar-SA'){
-        try{ rec.stop(); }catch(e){}
-        rec.lang = 'ar-SA';
-        try{ rec.start(); }catch(e){}
-        return;
-      }
-      if(input) input.value = dedupe((finalText + ' ' + interim).trim());
-      const last = ev.results[ev.results.length-1];
-      if(last && last.isFinal){
-        const out = dedupe(finalText).trim();
-        finalText=''; interim='';
-        if(!out) return;
-        // echo shield
-        const a = (out||'').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\\s+/g,' ').trim();
-        const b = (window.__lastAssistantText||'').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\\s+/g,' ').trim();
-        if(a && b && (a===b || (a.length>=12 && (b.includes(a)||a.includes(b))))){
-          if(input) input.value=''; return;
-        }
-        try{ rec.stop(); }catch(e){}
-        if(input) input.value = out;
-        sendAjax(out);
-      }
-    };
-    try{ rec.start(); }catch(e){}
-  }
-  function stopLive(){ window.__liveActive=false; if(window.recog){ try{window.recog.stop();}catch(e){} } setStatus('stopped'); }
-
-  if (liveBtn) liveBtn.addEventListener('click', function(){ startLive(); });
-  if (stopBtn) stopBtn.addEventListener('click', stopLive);
-
-  // ==== TTS Init ====
-  if ('speechSynthesis' in window){
-    speechSynthesis.onvoiceschanged = function(){ populateVoices(); };
-    waitVoices().then(populateVoices);
-    if (ttsTest){
-      ttsTest.addEventListener('click', async function(){
-        // User gesture -> guarantees audio allowed
-        const sample = (langSel && langSel.value==='ar') ? 'اختبار الصوت يعمل الآن.' : 'Voice test. Can you hear me?';
-        await speak(sample);
-      });
-    }
-  }else{
-    if (ttsInfo) ttsInfo.textContent = 'speechSynthesis not supported';
-  }
-})();</script>
+  // Live page hooks (no-ops on chat page, but safe)
+  window.startLive = function(){{}};
+  window.stopLive = function(){{}};
+}})();</script>
 </body></html>"""
-    return tpl.replace("__TITLE__", _html.escape(title)).replace("__BODY__", body)
+    return tpl.format(title=_html.escape(title), body=body)
+
+# ---------- Controllers ----------
 
 class AIAssistantController(http.Controller):
 
@@ -651,14 +566,15 @@ class AIAssistantController(http.Controller):
     @http.route(['/ai_assistant', '/ai_assistant/'], type='http', auth='user', methods=['GET','POST'], csrf=False)
     def chat(self, **post):
         history = _ensure_messages(); _persist_history(history)
-        err = ""
+        answer = ""
+        error = ""
         if request.httprequest.method == 'POST':
             user_msg = (post.get('message') or '').strip()
             if user_msg:
                 try:
-                    _ = _ai_reply(user_msg)
+                    answer = _ai_reply(user_msg)
                 except Exception as e:
-                    err = _html.escape(str(e))
+                    error = _html.escape(str(e))
 
         def render_msg(m):
             role = m.get('role')
@@ -669,36 +585,26 @@ class AIAssistantController(http.Controller):
         chat_html = "".join(render_msg(m) for m in history)
 
         form = """
-        <form id="ai_form" method="post" action="/ai_assistant">
+        <form method="post" action="/ai_assistant">
             <label>Message</label><br/>
             <textarea id="msg" name="message" rows="3" style="width:100%%" placeholder="اكتب سؤالك هنا / Type your question..."></textarea><br/>
-            <button type="submit" id="send_btn">Send</button>
+            <button type="submit">Send</button>
             <button type="button" id="mic" title="Voice input (browser)">🎤</button>
-            <button type="button" id="live" title="Live voice chat (continuous)">🎙 Live</button>
-            <button type="button" id="stop" title="Stop listening">⏹ Stop</button>
-            <span id="vstatus" style="font-size:90%%;margin-left:8px;">idle</span>
-            <div style="margin-top:8px;font-size:90%%">
-              <b>Voice input language:</b>
-              <select id="sr_lang">
-                <option value="auto" selected>Auto</option>
-                <option value="ar">Arabic (ar-SA)</option>
-                <option value="en">English (en-US)</option>
-              </select>
-              &nbsp;&nbsp;|&nbsp;&nbsp;
-              <b>Voice output:</b>
-              <select id="tts_voice"></select>
-              <button type="button" id="tts_test">Test Voice</button>
-              <span id="tts_info" style="margin-left:8px;color:#555"></span>
-            </div>
+            <a href="/ai_assistant/live_chat" style="margin-left:8px">🎙 Live Voice Chat</a>
+            <span id="vstatus" style="font-size:90%"></span>
         </form>
         """
+        if answer:
+            form += f"<input type='hidden' id='last_assistant_text' value={json.dumps(answer)} />"
+
         body = f"""
         <p style="font-size:90%%">⚠️ Never paste API keys here. Configure them in <a href="/ai_assistant/settings">Settings</a>.</p>
         <div id="log" style="max-height:70vh;overflow-y:auto;border:1px solid #ccc;padding:8px;margin:8px 0;">{chat_html}</div>
         {form}
+        <script>try{{var el=document.getElementById('log'); if(el){{el.scrollTop=el.scrollHeight;}}}}catch(e){{}}</script>
         """
-        if err:
-            body = f"<div style='color:red'><b>Error:</b> {err}</div>" + body
+        if error:
+            body = f"<div style='color:red'><b>Error:</b> {error}</div>" + body
         return _html_page(body, "GPT-5 Assistant — Chat")
 
     @http.route(['/ai_assistant/settings'], type='http', auth='user', methods=['GET','POST'], csrf=False)
@@ -752,7 +658,7 @@ class AIAssistantController(http.Controller):
         <p><b>Examples</b></p>
         <ul>
           <li>Groq: Base URL: https://api.groq.com/openai/v1, Model: llama-3.3-70b-versatile</li>
-          <li>OpenAI: leave Base URL blank, Model: gpt-4o-mini</li>
+          <li>OpenAI: leave Base URL blank, Model: gpt-4o-mini (requires OpenAI key & quota)</li>
           <li>OpenRouter: Base URL: https://openrouter.ai/api/v1, Model: meta-llama/llama-3.1-70b-instruct</li>
         </ul>
         """
@@ -799,29 +705,22 @@ class AIAssistantController(http.Controller):
             body += f"<div style='color:red'><b>Error:</b> {_html.escape(err)}</div>"
         return _html_page(body, "GPT-5 Assistant — Diagnostics")
 
+# ---------- Live Voice Chat (voice in + voice out) ----------
 
 class AIAssistantLiveController(http.Controller):
 
     @http.route(['/ai_assistant/api/send'], type='json', auth='user', methods=['POST'], csrf=False)
     def api_send(self, **post):
-        payload = {}
+        # Support both JSON-RPC wrapper and plain JSON; Odoo may wrap into {"jsonrpc":"2.0","params":...}
         try:
             payload = request.jsonrequest or {}
         except Exception:
             payload = {}
-        if isinstance(payload, dict) and 'params' in payload and isinstance(payload['params'], dict):
-            payload = payload['params']
-        if isinstance(post, dict) and post:
+        if isinstance(post, dict):
+            # merge in case router passes kwargs too
             payload = {**payload, **post}
-        if not payload:
-            try:
-                raw = (request.httprequest.data or b'').decode('utf-8', 'ignore')
-                if raw:
-                    maybe = json.loads(raw)
-                    if isinstance(maybe, dict):
-                        payload = maybe.get('params', maybe)
-            except Exception:
-                pass
+        if 'params' in payload and isinstance(payload['params'], dict):
+            payload = payload['params']
         msg = (payload.get('message') or '').strip()
         if not msg:
             return {'ok': False, 'error': 'empty'}
@@ -834,9 +733,170 @@ class AIAssistantLiveController(http.Controller):
     @http.route(['/ai_assistant/live_chat'], type='http', auth='user', methods=['GET'], csrf=False)
     def live_chat(self, **kw):
         html = '''<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Assistant — Live</title></head>
-<body>
+<html lang="en"><head><meta charset="utf-8"><title>Assistant — Live</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{font-family:system-ui,Segoe UI,Arial,sans-serif;padding:16px;line-height:1.35}
+#log{height:60vh;border:1px solid #ddd;padding:8px;overflow:auto;background:#fff}
+pre{white-space:pre-wrap;margin:6px 0}
+.controls{margin:8px 0}
+button{padding:6px 12px;margin-right:6px}
+.badge{font-size:12px;color:#555}
+</style>
+</head><body>
 <h2>Live Voice Chat</h2>
-<p>Open <a href="/ai_assistant">Chat</a> for the full interface.</p>
+<div class="badge">Mic: <span id="vstatus">idle</span></div>
+<div id="log"></div>
+<div class="controls">
+  <textarea id="msg" rows="2" style="width:70%" placeholder="تحدث أو اكتب… / Speak or type…"></textarea>
+  <button id="send">Send</button>
+  <button id="live">Start Live</button>
+  <button id="stop">Stop</button>
+</div>
+<p style="font-size:12px;color:#666">Tip: The assistant pauses listening while speaking to avoid echo loops.</p>
+<script>
+(function(){
+  const input = document.getElementById('msg');
+  const btnSend = document.getElementById('send');
+  const liveBtn = document.getElementById('live');
+  const stopBtn = document.getElementById('stop');
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const vstatus = document.getElementById('vstatus');
+  let recog = null, liveActive = false, speaking = false, lastSentHash = '';
+
+  function setStatus(t){ if(vstatus) vstatus.textContent = t; }
+  function detectLang(s){
+    if(!s) return (navigator.language||'en').slice(0,2);
+    if(/[\\u0600-\\u06FF]/.test(s)) return 'ar';
+    if(/[\\u0400-\\u04FF]/.test(s)) return 'ru';
+    if(/[\\u4E00-\\u9FFF]/.test(s)) return 'zh';
+    if(/[\\u0900-\\u097F]/.test(s)) return 'hi';
+    if(/[\\u3040-\\u30FF]/.test(s)) return 'ja';
+    if(/[\\uAC00-\\uD7AF]/.test(s)) return 'ko';
+    return 'en';
+  }
+  function pickVoice(lang2){
+    try{
+      const voices = speechSynthesis.getVoices()||[];
+      const pref = {'ar':'ar','zh':'zh','hi':'hi','ja':'ja','ko':'ko','ru':'ru','en':'en'};
+      const target = pref[lang2] || 'en';
+      let best = null;
+      for (const v of voices){
+        const n=(v.name||'').toLowerCase(), l=(v.lang||'').toLowerCase();
+        if(l.startsWith(target) || (target==='ar' && n.includes('arab'))){ best=v; break; }
+        if(!best && (l.includes(target)||n.includes(target))) best=v;
+      }
+      return best || voices[0] || null;
+    }catch(e){ return null; }
+  }
+  function dedupe(s){
+    s = (s||'').replace(/\\s+/g,' ').trim();
+    s = s.replace(/\\b(\\w+)(\\s+\\1\\b)+/gi,'$1');
+    if(s.length>4 && s.length%2===0){
+      const h=s.slice(0,s.length/2);
+      if((h+h).toLowerCase()===s.toLowerCase()) s=h;
+    }
+    return s;
+  }
+  function speak(txt){
+    try{
+      if(!window.speechSynthesis) return null;
+      speaking = true;
+      try{ window.speechSynthesis.cancel(); }catch(e){}
+      if(recog){ try{recog.abort();}catch(e){} }
+      const u = new SpeechSynthesisUtterance(txt||'');
+      const lang2 = detectLang(txt||'');
+      const v = pickVoice(lang2);
+      if(v){ u.voice=v; u.lang=v.lang; } else { u.lang=(lang2==='ar'?'ar-SA':'en-US'); }
+      u.rate = 1.0; u.pitch = 1.0;
+      u.onend = function(){ speaking=false; if(liveActive){ try{recog && recog.start();}catch(e){} } };
+      speechSynthesis.speak(u);
+      return u;
+    }catch(e){ speaking=false; return null; }
+  }
+  function appendMessage(who, txt){
+    const log = document.getElementById('log');
+    const div = document.createElement('div');
+    div.innerHTML = '<b>'+who+':</b><pre></pre>';
+    div.querySelector('pre').textContent = txt||'';
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  }
+  async function sendAjax(text){
+    appendMessage('You', text);
+    try{
+      const r = await fetch('/ai_assistant/api/send', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({message:text})
+      });
+      const raw = await r.json();
+      const data = (raw && typeof raw==='object' && 'result' in raw) ? raw.result : raw;
+      if (data && data.ok && typeof data.reply === 'string') {
+        appendMessage('Assistant', data.reply);
+        const u = speak(data.reply);
+        if(u){ /* onend resumes mic if liveActive */ }
+      } else if (data && data.error) {
+        appendMessage('Assistant', '⚠ ' + data.error);
+      } else {
+        appendMessage('Assistant', '(no reply)');
+      }
+    }catch(e){
+      appendMessage('Assistant', '⚠ network error');
+    }
+  }
+  function hash(s){
+    try{
+      return Array.from(s||'').reduce((a,c)=>((a*31 + c.charCodeAt(0))>>>0),0).toString();
+    }catch(e){ return String(s||''); }
+  }
+  function autoSend(){
+    const t = dedupe((input && input.value||'').trim());
+    if(!t) return;
+    const h = hash(t);
+    if(h===lastSentHash) return; // avoid sending same line twice
+    lastSentHash = h;
+    if(recog){ try{recog.stop();}catch(e){} }
+    input.value='';
+    sendAjax(t);
+  }
+  function startLive(){
+    if(!SR){ setStatus('speech API not supported'); return; }
+    try{ speechSynthesis && speechSynthesis.cancel(); }catch(e){}
+    liveActive = true;
+    if(recog){ try{recog.stop();}catch(e){} recog=null; }
+    recog = new SR();
+    recog.continuous = true;
+    recog.interimResults = true;
+    recog.lang = (navigator.language||'en-US');
+    recog.onstart = function(){ setStatus('listening…'); };
+    recog.onerror = function(){ setStatus('error'); };
+    recog.onend = function(){ setStatus(liveActive ? 'restarting…' : 'idle'); if(liveActive && !speaking){ try{recog.start();}catch(e){} } };
+    let finalText = '', interim = '';
+    recog.onresult = function(ev){
+      if(speaking) return; // ignore own voice
+      for(let i=ev.resultIndex;i<ev.results.length;i++){
+        const r = ev.results[i]; const t = r[0].transcript;
+        if(r.isFinal) finalText += ' ' + t; else interim = t;
+      }
+      const mix = dedupe((finalText + ' ' + interim).trim());
+      input.value = mix;
+      const last = ev.results[ev.results.length-1];
+      if(last && last.isFinal){
+        const out = dedupe(finalText).trim();
+        if(out){ input.value = out; autoSend(); }
+        finalText=''; interim='';
+      }
+    };
+    try{ recog.start(); }catch(e){}
+  }
+  function stopLive(){ liveActive=false; if(recog){ try{recog.stop();}catch(e){} } setStatus('stopped'); }
+
+  btnSend.addEventListener('click', autoSend);
+  input.addEventListener('keydown', function(e){ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); autoSend(); }});
+  liveBtn.addEventListener('click', startLive);
+  stopBtn.addEventListener('click', stopLive);
+})();
+</script>
 </body></html>'''
         return request.make_response(html, headers=[('Content-Type','text/html; charset=utf-8')])
