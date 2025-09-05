@@ -31,11 +31,6 @@ def _get_conf(key, default=False):
 def _set_conf(key, value):
     request.env['ir.config_parameter'].sudo().set_param(key, value)
 
-def _mask(s):
-    if not s: return ""
-    if len(s) <= 6: return "*" * len(s)
-    return s[:3] + "*" * (len(s)-6) + s[-3:]
-
 def _normalize_base_url(url):
     if not url:
         return "https://api.groq.com/openai/v1"
@@ -68,7 +63,6 @@ def _danger_mode():
     return v in ("1","true","yes","on")
 
 def _env(danger=False):
-    """Return a safe env that escalates if possible."""
     env = request.env
     if danger:
         try:
@@ -210,8 +204,6 @@ def tool_sales_summary(period:str="today"):
     return {"period": period, "count": count, "total": total, "currency": _currency_symbol(), "recent": lines}
 
 def tool_count_products(kind: str = "template"):
-    """Return number of products. kind='template' counts product.template (unique products),
-    kind='variant' counts product.product (variants)."""
     env = request.env
     if (kind or '').lower() == 'variant':
         return {"kind": "variant", "count": env['product.product'].search_count([])}
@@ -308,11 +300,9 @@ def _chat_complete(messages):
 
 def _maybe_server_shortcut(user_text:str):
     t = (user_text or '').strip().lower()
-    # English
     if re.search(r'\bhow\s+many\s+(products|items)\b', t):
         data = tool_count_products(kind='template')
         return f"You have {data['count']} products (unique templates)."
-    # Arabic
     if ('كم' in t and 'منتج' in t) or ('عدد' in t and 'المنتجات' in t):
         data = tool_count_products(kind='template')
         return f"لديك {data['count']} منتج (قوالب فريدة)."
@@ -320,8 +310,6 @@ def _maybe_server_shortcut(user_text:str):
 
 def _ai_reply(user_text):
     history = _ensure_messages(); _persist_history(history)
-
-    # server shortcut
     short = _maybe_server_shortcut(user_text)
     if short:
         history.append({"role":"user","content":user_text}); _persist_history(history)
@@ -392,6 +380,7 @@ def _html_page(body, title="GPT-5 Assistant"):
   const stopBtn = document.getElementById('stop');
   const vstatus = document.getElementById('vstatus');
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
   function setStatus(t){{ if(vstatus) vstatus.textContent = t; }}
   function detectLang(s){{
     if(!s) return (navigator.language||'en').slice(0,2);
@@ -404,72 +393,108 @@ def _html_page(body, title="GPT-5 Assistant"):
     return 'en';
   }}
   function pickVoice(lang2){{
-    try{{
+    try {{
       const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
-      let v = voices.find(v=>v.lang && v.lang.toLowerCase().startsWith(lang2));
-      if(!v){{
-        const map = {{ ar:'ar-SA', en:'en-US', ru:'ru-RU', zh:'zh-CN', hi:'hi-IN', ja:'ja-JP', ko:'ko-KR' }};
-        const target = map[lang2] || 'en-US';
-        v = voices.find(v=>v.lang===target) || voices.find(v=>v.lang && v.lang.toLowerCase().startsWith(target.slice(0,2)));
+      const pref = {{ar:'ar',zh:'zh',hi:'hi',ja:'ja',ko:'ko',ru:'ru',en:'en'}};
+      const tgt = pref[lang2] || 'en';
+      let v = null;
+      for (const vv of voices) {{
+        const l=(vv.lang||'').toLowerCase(), n=(vv.name||'').toLowerCase();
+        if(l.startsWith(tgt) || (tgt==='ar' && n.includes('arab'))) {{ v = vv; break; }}
+        if(!v && (l.includes(tgt)||n.includes(tgt))) v = vv;
       }}
-      return v || null;
-    }}catch(e){{ return null; }}
+      return v || voices[0] || null;
+    }} catch(e) {{ return null; }}
+  }}
+  let voicesReady = false;
+  if (window.speechSynthesis) {{
+    window.speechSynthesis.onvoiceschanged = function(){{ voicesReady = true; }};
+    // poke voices
+    window.speechSynthesis.getVoices(); setTimeout(()=>{{voicesReady=true;}},300);
   }}
   function speak(text){{
-    if(!window.speechSynthesis) return;
-    const lang2 = detectLang(text);
-    const u = new SpeechSynthesisUtterance(text);
+    if(!window.speechSynthesis) return null;
+    try{{ window.speechSynthesis.cancel(); }}catch(e){{}}
+    const lang2 = detectLang(text||'');
+    const u = new SpeechSynthesisUtterance(text||'');
     const v = pickVoice(lang2);
-    if(v) u.voice = v;
-    u.lang = (v && v.lang) || (lang2==='ar'?'ar-SA': lang2==='ru'?'ru-RU': lang2==='zh'?'zh-CN': lang2==='hi'?'hi-IN': lang2==='ja'?'ja-JP': lang2==='ko'?'ko-KR':'en-US');
+    if(v) {{ u.voice = v; u.lang = v.lang; }}
+    else {{ u.lang = (lang2==='ar'?'ar-SA':'en-US'); }}
+    u.rate = 1.0; u.pitch = 1.0;
     window.speechSynthesis.speak(u);
     return u;
   }}
-  // Auto-speak last assistant reply once
-  try{{
-    const ta = document.getElementById('last_assistant_text');
-    const txt = ta ? (ta.value||'').trim() : '';
-    if(txt){{
-      const key='ai_last_spoken';
-      const hash = Array.from(txt).reduce((a,c)=>((a*31 + c.charCodeAt(0))>>>0),0).toString();
-      const prev = sessionStorage.getItem(key);
-      if(prev!==hash){{
-        const u = speak(txt);
-        sessionStorage.setItem(key, hash);
-        if(u){{ u.onend = function(){{ try{{ if(window.__liveActive) window.startLive(true); }}catch(e){{}} }} }}
-      }}
+  function dedupe(s){{
+    s = (s||'').replace(/\\s+/g,' ').trim();
+    s = s.replace(/\\b(\\w+)(\\s+\\1\\b)+/gi, '$1'); // repeated words
+    if(s.length>4 && s.length%2===0){{
+      const h=s.slice(0,s.length/2);
+      if((h+h).toLowerCase()===s.toLowerCase()) s=h;
     }}
-  }}catch(e){{}}
-  // Quick mic
-  if (micBtn && SR){{
-    try{{
+    return s;
+  }}
+
+  // Quick mic (single utterance)
+  if (micBtn && SR) {{
+    try {{
       const rec = new SR();
-      rec.lang = (navigator.language||'en-US'); rec.continuous = false; rec.interimResults = false;
-      micBtn.addEventListener('click', function(){{ try{{ setStatus('Listening…'); rec.lang=(navigator.language||'en-US'); rec.start(); }}catch(e){{ setStatus(''); }} }});
-      rec.onresult = function(ev){{ try{{ let t = ev.results[0][0].transcript; if (input) {{ input.value = t; }} setStatus(''); }}catch(e){{}} }};
-      rec.onerror = function(e){{ setStatus('Mic error'); }};
+      rec.lang = (navigator.language||'en-US'); rec.continuous = false; rec.interimResults = true;
+      let finalText = '', interim = '';
+      micBtn.addEventListener('click', function(){{
+        try{{ setStatus('Listening…'); finalText=''; interim=''; rec.start(); }}catch(e){{ setStatus(''); }}
+      }});
+      rec.onresult = function(ev){{
+        for(let i=ev.resultIndex;i<ev.results.length;i++) {{
+          const r = ev.results[i]; const t = r[0].transcript;
+          if(r.isFinal) finalText += ' ' + t;
+          else interim = t;
+        }}
+        if (input) input.value = dedupe((finalText + ' ' + interim).trim());
+      }};
+      rec.onerror = function(){{ setStatus('Mic error'); }};
       rec.onend = function(){{ setStatus(''); }};
-    }}catch(e){{ /* ignore */ }}
-  }} else if (micBtn && !SR){{ micBtn.addEventListener('click', function(){{ alert('Voice input not supported in this browser.'); }}); }}
-  // Live with dynamic language switching
+    }} catch(e) {{ }}
+  }} else if (micBtn && !SR) {{
+    micBtn.addEventListener('click', function(){{ alert('Voice input not supported in this browser.'); }});
+  }}
+
+  // Live page buttons exist only there, but keeping hooks harmless here
   let recog = null;
-  function autoSend(){{ try{{ var form = document.querySelector('form[action="/ai_assistant"]'); if(!form) return; var fd = new FormData(form); fetch('/ai_assistant', {{ method:'POST', body:fd }}).then(function(){{ location.reload(); }}); }}catch(e){{}} }}
-  window.startLive = function(resume){{
-    const SR2 = SR; if (!SR2){{ alert('Your browser does not support voice input.'); return; }}
-    window.__liveActive = true; setStatus('Listening…');
-    try{{
-      if(recog){{ try{{ recog.stop(); }}catch(e){{}} recog=null; }}
+  function autoSend(){{
+    try {{
+      var form = document.querySelector('form[action="/ai_assistant"]');
+      if(!form) return;
+      var fd = new FormData(form);
+      fetch('/ai_assistant', {{ method:'POST', body:fd }}).then(function(){{ location.reload(); }});
+    }} catch(e) {{}}
+  }}
+  window.startLive = function(){{
+    const SR2 = SR; if(!SR2){{ alert('Your browser does not support voice input.'); return; }}
+    try{{ window.speechSynthesis && window.speechSynthesis.cancel(); }}catch(e){{}}
+    try {{
+      if(recog){{ try{{recog.stop();}}catch(e){{}} recog=null; }}
       recog = new SR2(); recog.lang=(navigator.language||'en-US'); recog.continuous=true; recog.interimResults=true;
-      let partial = '', curLang = recog.lang;
-      recog.onresult = function(ev){{ try{{ for(let i=ev.resultIndex;i<ev.results.length;i++){{ var r=ev.results[i]; partial += r[0].transcript; var guess = detectLang(partial); var map={{ar:'ar-SA',en:'en-US',ru:'ru-RU',zh:'zh-CN',hi:'hi-IN',ja:'ja-JP',ko:'ko-KR'}}; var want = map[guess]||'en-US'; if(want!==curLang){{ try{{ recog.stop(); }}catch(e){{}} curLang=want; setTimeout(function(){{ try{{ recog.lang=curLang; recog.start(); }}catch(e){{}} }}, 200); return; }} if(r.isFinal){{ if(input) input.value = partial.trim(); partial=''; autoSend(); }} else {{ if(input) input.value = partial; }} }} }}catch(e){{}} }};
-      recog.onerror = function(e){{ setStatus('Mic error'); }};
-      recog.onend = function(){{ if(window.__liveActive){{ try{{ recog.start(); }}catch(e){{}} }} else {{ setStatus(''); }} }};
+      let finalText = '', interim = '';
+      recog.onresult = function(ev){{
+        for(let i=ev.resultIndex;i<ev.results.length;i++) {{
+          const r = ev.results[i]; const t = r[0].transcript;
+          if(r.isFinal) finalText += ' ' + t; else interim = t;
+        }}
+        if(input) input.value = dedupe((finalText + ' ' + interim).trim());
+        const last = ev.results[ev.results.length-1];
+        if(last && last.isFinal){{
+          const out = dedupe(finalText).trim();
+          if(out){{ if(input) input.value = out; autoSend(); }}
+          finalText=''; interim='';
+        }}
+      }};
       recog.start();
-    }}catch(e){{ setStatus('Mic blocked'); }}
+    }} catch(e) {{ setStatus('Mic blocked'); }}
   }};
-  window.stopLive = function(){{ window.__liveActive=false; try{{ recog && recog.stop(); }}catch(e){{}} setStatus(''); }};
-  if (liveBtn) liveBtn.addEventListener('click', function(){{ window.startLive(); }});
-  if (stopBtn) stopBtn.addEventListener('click', function(){{ window.stopLive(); }});
+  window.stopLive = function(){{ try{{ recog && recog.stop(); }}catch(e){{}} setStatus(''); }};
+
+  if (liveBtn) liveBtn.addEventListener('click', function(){ window.startLive(); });
+  if (stopBtn) stopBtn.addEventListener('click', function(){ window.stopLive(); });
 }})();</script>
 </body></html>"""
     return tpl.format(title=_html.escape(title), body=body)
@@ -503,11 +528,13 @@ class AIAssistantController(http.Controller):
                     answer = _ai_reply(user_msg)
                 except Exception as e:
                     error = _html.escape(str(e))
+
         def render_msg(m):
             role = m.get('role')
             who = "You" if role == "user" else ("Assistant" if role == "assistant" else role)
             content = _html.escape(m.get('content') or "")
             return f"<div><b>{who}:</b><pre style='white-space:pre-wrap'>{content}</pre></div>"
+
         chat_html = "".join(render_msg(m) for m in history)
 
         form = """
@@ -522,7 +549,9 @@ class AIAssistantController(http.Controller):
         </form>
         """
         if answer:
-            form += f"<script>try{{speak({json.dumps(answer)})}}catch(e){{}};</script>"
+            # speak the new answer once
+            form += f"<script>try{{ if(window.speechSynthesis){{ speechSynthesis.cancel(); }} var u=(function(txt){{ var speak=window.speak||function(t){{var u=new SpeechSynthesisUtterance(t); try{{speechSynthesis.speak(u);}}catch(e){{}} return u;}}; return speak({json.dumps(answer)}); }} )({json.dumps(answer)}); }}catch(e){{}};</script>"
+
         body = f"""
         <p style="font-size:90%%">⚠️ Never paste API keys here. Configure them in <a href="/ai_assistant/settings">Settings</a>.</p>
         <div id="log" style="max-height:70vh;overflow-y:auto;border:1px solid #ccc;padding:8px;margin:8px 0;">{chat_html}</div>
@@ -584,7 +613,7 @@ class AIAssistantController(http.Controller):
         <p><b>Examples</b></p>
         <ul>
           <li>Groq: Base URL: https://api.groq.com/openai/v1, Model: llama-3.3-70b-versatile</li>
-          <li>OpenAI: leave Base URL blank, Model: gpt-4o-mini (requires OpenAI key & quota)</li>
+          <li>OpenAI: leave Base URL blank, Model: gpt-4o-mini</li>
           <li>OpenRouter: Base URL: https://openrouter.ai/api/v1, Model: meta-llama/llama-3.1-70b-instruct</li>
         </ul>
         """
@@ -633,16 +662,16 @@ class AIAssistantController(http.Controller):
 
 
 class AIAssistantLiveController(http.Controller):
+
     @http.route(['/ai_assistant/api/send'], type='json', auth='user', methods=['POST'], csrf=False)
     def api_send(self, **post):
-        """Accept both JSON-RPC wrapped and plain JSON; return plain dict (Odoo wraps it)."""
+        # Support both JSON-RPC wrapper and plain JSON; Odoo will wrap dict into {"result": ...}
         try:
             payload = request.jsonrequest or {}
         except Exception:
             payload = {}
         if isinstance(post, dict):
             payload = {**payload, **post}
-
         msg = (payload.get('message') or '').strip()
         if not msg:
             return {'ok': False, 'error': 'empty'}
@@ -710,15 +739,25 @@ button{padding:6px 12px;margin-right:6px}
       return best || voices[0] || null;
     }catch(e){ return null; }
   }
+  function dedupe(s){
+    s = (s||'').replace(/\\s+/g,' ').trim();
+    s = s.replace(/\\b(\\w+)(\\s+\\1\\b)+/gi,'$1');
+    if(s.length>4 && s.length%2===0){
+      const h=s.slice(0,s.length/2);
+      if((h+h).toLowerCase()===s.toLowerCase()) s=h;
+    }
+    return s;
+  }
   function speak(txt){
     try{
       if(!window.speechSynthesis) return null;
+      window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(txt||'');
       const lang2 = detectLang(txt||'');
       const v = pickVoice(lang2);
-      if(v){ u.voice=v; u.lang=v.lang; } else { u.lang=(navigator.language||'en'); }
+      if(v){ u.voice=v; u.lang=v.lang; } else { u.lang=(lang2==='ar'?'ar-SA':'en-US'); }
       u.rate = 1.0; u.pitch = 1.0;
-      window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
+      window.speechSynthesis.speak(u);
       return u;
     }catch(e){ return null; }
   }
@@ -738,7 +777,7 @@ button{padding:6px 12px;margin-right:6px}
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({message:text})
       });
-      const raw = await r.json();                      // may be {"jsonrpc":"2.0","result":{...}}
+      const raw = await r.json();
       const data = (raw && typeof raw==='object' && 'result' in raw) ? raw.result : raw;
 
       if (data && data.ok && typeof data.reply === 'string') {
@@ -763,7 +802,6 @@ button{padding:6px 12px;margin-right:6px}
   }
   function startLive(){
     if(!SR){ setStatus('speech API not supported'); return; }
-    // Prevent feedback loop: stop TTS before listening
     try{ window.speechSynthesis && window.speechSynthesis.cancel(); }catch(e){}
     liveActive = true;
     if(recog){ try{recog.stop();}catch(e){} recog=null; }
@@ -774,14 +812,18 @@ button{padding:6px 12px;margin-right:6px}
     recog.onstart = function(){ setStatus('listening…'); };
     recog.onerror = function(){ setStatus('error'); };
     recog.onend = function(){ setStatus('idle'); if(liveActive){ try{recog.start();}catch(e){} } };
+    let finalText = '', interim = '';
     recog.onresult = function(ev){
-      let str='';
-      for(let i=ev.resultIndex;i<ev.results.length;i++){ str += ev.results[i][0].transcript; }
-      input.value = str;
+      for(let i=ev.resultIndex;i<ev.results.length;i++){
+        const r = ev.results[i]; const t = r[0].transcript;
+        if(r.isFinal) finalText += ' ' + t; else interim = t;
+      }
+      input.value = dedupe((finalText + ' ' + interim).trim());
       const last = ev.results[ev.results.length-1];
       if(last && last.isFinal){
-        const finalText = (str||'').trim();
-        if(finalText){ autoSend(); }
+        const out = dedupe(finalText).trim();
+        if(out){ input.value = out; autoSend(); }
+        finalText=''; interim='';
       }
     };
     try{ recog.start(); }catch(e){}
