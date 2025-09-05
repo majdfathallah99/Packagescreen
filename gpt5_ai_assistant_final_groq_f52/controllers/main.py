@@ -365,7 +365,11 @@ def _ai_reply(user_text):
 
 def _html_page(body, title="GPT-5 Assistant"):
     tpl = """<!doctype html>
-<html><head><meta charset="utf-8"/><title>%(title)s</title></head>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>%(title)s</title>
+</head>
 <body>
 <div style="max-width:900px;margin:24px auto;padding:8px;">
 <h2>%(title)s</h2>
@@ -374,7 +378,7 @@ def _html_page(body, title="GPT-5 Assistant"):
 <p><a href="/ai_assistant">Chat</a> • <a href="/ai_assistant/settings">Settings</a> • <a href="/ai_assistant/clear">New chat</a> • <a href="/ai_assistant/diag">Diagnostics</a> • <a href="/ai_assistant/export">Export</a></p>
 </div>
 <script>(function(){
-  // -------- Voice helpers (shared) --------
+  // Voice helpers
   function detectLang(s){
     if(!s) return (navigator.language||'en').slice(0,2);
     if(/[\\u0600-\\u06FF]/.test(s)) return 'ar';
@@ -428,17 +432,17 @@ def _html_page(body, title="GPT-5 Assistant"):
   }
   window.speak = speak;
 
-  // -------- Chat page wiring (AJAX + Live) --------
+  // Chat wiring
   const micBtn  = document.getElementById('mic');
   const liveBtn = document.getElementById('live');
   const stopBtn = document.getElementById('stop');
   const vstatus = document.getElementById('vstatus');
   const input   = document.getElementById('msg');
   const logEl   = document.getElementById('log');
+  const form    = document.getElementById('ai_form');
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   function setStatus(t){ if(vstatus) vstatus.textContent = t; }
-
   function append(who, txt){
     const div = document.createElement('div');
     div.innerHTML = '<b>'+who+':</b><pre style="white-space:pre-wrap"></pre>';
@@ -448,7 +452,7 @@ def _html_page(body, title="GPT-5 Assistant"):
   function dedupe(s){
     s = (s||'').replace(/\\s+/g,' ').trim();
     s = s.replace(/\\b(\\w+)(\\s+\\1\\b)+/gi,'$1');
-    if(s.length>4 && s.length%%2===0){
+    if(s.length>4 && s.length%2===0){
       const h=s.slice(0,s.length/2);
       if((h+h).toLowerCase()===s.toLowerCase()) s=h;
     }
@@ -459,11 +463,13 @@ def _html_page(body, title="GPT-5 Assistant"):
     append('You', text);
     try{
       const r = await fetch('/ai_assistant/api/send', {
-        method:'POST', headers:{'Content-Type':'application/json'},
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
         body: JSON.stringify({message:text})
       });
-      const raw  = await r.json();
+      const raw = await r.json();
       const data = (raw && typeof raw==='object' && 'result' in raw) ? raw.result : raw;
+
       let replyText = '(no reply)';
       if (data && typeof data.reply === 'string') {
         replyText = data.reply;
@@ -474,7 +480,7 @@ def _html_page(body, title="GPT-5 Assistant"):
       if (data && data.reply) {
         const wasLive = window.__liveActive === true;
         window.__liveActive = false; // pause ASR while TTS
-        const u = await speak(data.reply);
+        await speak(data.reply);
         window.__resumeAfterTTS = function(){ if(wasLive) startLive(true); };
       }
     }catch(e){
@@ -482,10 +488,7 @@ def _html_page(body, title="GPT-5 Assistant"):
     }
   }
 
-  // Form AJAX (no page reload)
-  (function(){
-    const form = document.getElementById('ai_form');
-    if(!form) return;
+  if (form){
     form.addEventListener('submit', function(ev){
       ev.preventDefault();
       const t = (input.value||'').trim();
@@ -493,9 +496,9 @@ def _html_page(body, title="GPT-5 Assistant"):
       input.value = '';
       sendAjax(t);
     });
-  })();
+  }
 
-  // Quick mic (single utterance)
+  // Quick mic
   if (micBtn && SR){
     try{
       const rec = new SR();
@@ -519,11 +522,11 @@ def _html_page(body, title="GPT-5 Assistant"):
     micBtn.addEventListener('click', function(){ alert('Voice input not supported in this browser.'); });
   }
 
-  // Live
+  // Live mic
   let recog = null;
   window.__liveActive = false;
 
-  function startLive(resume){
+  function startLive(){
     if(!SR){ setStatus('speech API not supported'); return; }
     if (!window.isSecureContext) { alert('Live voice requires HTTPS.'); return; }
     window.__liveActive = true;
@@ -536,12 +539,10 @@ def _html_page(body, title="GPT-5 Assistant"):
     recog.onerror = function(){ setStatus('error'); };
     recog.onend   = function(){
       setStatus(window.__liveActive ? 'restarting…' : 'idle');
-      if(window.__liveActive && !ttsSpeaking){
-        try{recog.start();}catch(e){}
-      }
+      if(window.__liveActive){ try{recog.start();}catch(e){} }
     };
     recog.onresult = function(ev){
-      if(ttsSpeaking) return; // ignore while speaking
+      if(window.speechSynthesis && window.speechSynthesis.speaking) return;
       for(let i=ev.resultIndex;i<ev.results.length;i++){
         const r = ev.results[i], t=r[0].transcript;
         if(r.isFinal) finalText += ' ' + t; else interim = t;
@@ -551,22 +552,18 @@ def _html_page(body, title="GPT-5 Assistant"):
       if(last && last.isFinal){
         const out = dedupe(finalText).trim();
         if(out){
-          try{ recog.stop(); }catch(e){}
-          input.value = out;
+          try{recog.stop();}catch(e){}
+          input.value = out; finalText=''; interim='';
           sendAjax(out);
-          finalText=''; interim='';
         }
       }
     };
     try{ recog.start(); }catch(e){}
   }
   function stopLive(){ window.__liveActive=false; if(recog){ try{recog.stop();}catch(e){} } setStatus('stopped'); }
-
-  window.startLive = startLive;
-  window.stopLive  = stopLive;
-
-  if (liveBtn) liveBtn.addEventListener('click', function(){ startLive(); });
-  if (stopBtn) stopBtn.addEventListener('click', function(){ stopLive(); });
+  window.startLive = startLive; window.stopLive = stopLive;
+  if (liveBtn) liveBtn.addEventListener('click', startLive);
+  if (stopBtn) stopBtn.addEventListener('click', stopLive);
 
 })();</script>
 </body></html>"""
@@ -592,14 +589,14 @@ class AIAssistantController(http.Controller):
     @http.route(['/ai_assistant', '/ai_assistant/'], type='http', auth='user', methods=['GET','POST'], csrf=False)
     def chat(self, **post):
         history = _ensure_messages(); _persist_history(history)
-        error = ""
+        err = ""
         if request.httprequest.method == 'POST':
             user_msg = (post.get('message') or '').strip()
             if user_msg:
                 try:
                     _ = _ai_reply(user_msg)
                 except Exception as e:
-                    error = _html.escape(str(e))
+                    err = _html.escape(str(e))
 
         def render_msg(m):
             role = m.get('role')
@@ -608,7 +605,6 @@ class AIAssistantController(http.Controller):
             return f"<div><b>{who}:</b><pre style='white-space:pre-wrap'>{content}</pre></div>"
 
         chat_html = "".join(render_msg(m) for m in history)
-
         form = """
         <form id="ai_form" method="post" action="/ai_assistant">
             <label>Message</label><br/>
@@ -620,14 +616,13 @@ class AIAssistantController(http.Controller):
             <span id="vstatus" style="font-size:90%%"></span>
         </form>
         """
-
         body = f"""
         <p style="font-size:90%%">⚠️ Never paste API keys here. Configure them in <a href="/ai_assistant/settings">Settings</a>.</p>
         <div id="log" style="max-height:70vh;overflow-y:auto;border:1px solid #ccc;padding:8px;margin:8px 0;">{chat_html}</div>
         {form}
         """
-        if error:
-            body = f"<div style='color:red'><b>Error:</b> {error}</div>" + body
+        if err:
+            body = f"<div style='color:red'><b>Error:</b> {err}</div>" + body
         return _html_page(body, "GPT-5 Assistant — Chat")
 
     @http.route(['/ai_assistant/settings'], type='http', auth='user', methods=['GET','POST'], csrf=False)
@@ -733,15 +728,37 @@ class AIAssistantLiveController(http.Controller):
 
     @http.route(['/ai_assistant/api/send'], type='json', auth='user', methods=['POST'], csrf=False)
     def api_send(self, **post):
+        """
+        Accept JSON-RPC and plain JSON:
+        - JSON-RPC: {"jsonrpc":"2.0","method":"call","params":{"message":"..."}}
+        - Plain:    {"message":"..."}
+        """
+        payload = {}
         try:
             payload = request.jsonrequest or {}
         except Exception:
             payload = {}
-        if isinstance(post, dict):
+        # Unwrap JSON-RPC
+        if isinstance(payload, dict) and 'params' in payload and isinstance(payload['params'], dict):
+            payload = payload['params']
+        # Merge kwargs if Odoo passed them
+        if isinstance(post, dict) and post:
             payload = {**payload, **post}
+        # Last-resort raw body decode (for proxies)
+        if not payload:
+            try:
+                raw = (request.httprequest.data or b'').decode('utf-8', 'ignore')
+                if raw:
+                    maybe = json.loads(raw)
+                    if isinstance(maybe, dict):
+                        payload = maybe.get('params', maybe)
+            except Exception:
+                pass
+
         msg = (payload.get('message') or '').strip()
         if not msg:
             return {'ok': False, 'error': 'empty'}
+
         try:
             reply = _ai_reply(msg)
             return {'ok': True, 'reply': reply}
@@ -751,28 +768,9 @@ class AIAssistantLiveController(http.Controller):
     @http.route(['/ai_assistant/live_chat'], type='http', auth='user', methods=['GET'], csrf=False)
     def live_chat(self, **kw):
         html = '''<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Assistant — Live</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-body{font-family:system-ui,Segoe UI,Arial,sans-serif;padding:16px;line-height:1.35}
-#log{height:50vh;border:1px solid #ddd;padding:8px;overflow:auto;background:#fff}
-pre{white-space:pre-wrap;margin:6px 0}
-.controls{margin:8px 0}
-button{padding:6px 12px;margin-right:6px}
-.badge{font-size:12px;color:#555}
-</style>
-</head><body>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Assistant — Live</title></head>
+<body>
 <h2>Live Voice Chat</h2>
-<div class="badge">Mic: <span id="vstatus">idle</span></div>
-<div id="log"></div>
-<div class="controls">
-  <textarea id="msg" rows="2" style="width:70%" placeholder="Type or speak…"></textarea>
-  <button id="send">Send</button>
-  <button id="live">Live</button>
-  <button id="stop">Stop</button>
-</div>
-<script>
-/* Kept minimal; Chat page already contains the full logic */
-</script>
+<p>Open <a href="/ai_assistant">Chat</a> for the full interface.</p>
 </body></html>'''
         return request.make_response(html, headers=[('Content-Type','text/html; charset=utf-8')])
