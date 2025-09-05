@@ -68,6 +68,7 @@ def _danger_mode():
     return v in ("1","true","yes","on")
 
 def _env(danger=False):
+    """Return a safe env that escalates if possible."""
     env = request.env
     if danger:
         try:
@@ -209,6 +210,8 @@ def tool_sales_summary(period:str="today"):
     return {"period": period, "count": count, "total": total, "currency": _currency_symbol(), "recent": lines}
 
 def tool_count_products(kind: str = "template"):
+    """Return number of products. kind='template' counts product.template (unique products),
+    kind='variant' counts product.product (variants)."""
     env = request.env
     if (kind or '').lower() == 'variant':
         return {"kind": "variant", "count": env['product.product'].search_count([])}
@@ -305,9 +308,11 @@ def _chat_complete(messages):
 
 def _maybe_server_shortcut(user_text:str):
     t = (user_text or '').strip().lower()
+    # English
     if re.search(r'\bhow\s+many\s+(products|items)\b', t):
         data = tool_count_products(kind='template')
         return f"You have {data['count']} products (unique templates)."
+    # Arabic
     if ('كم' in t and 'منتج' in t) or ('عدد' in t and 'المنتجات' in t):
         data = tool_count_products(kind='template')
         return f"لديك {data['count']} منتج (قوالب فريدة)."
@@ -315,6 +320,8 @@ def _maybe_server_shortcut(user_text:str):
 
 def _ai_reply(user_text):
     history = _ensure_messages(); _persist_history(history)
+
+    # server shortcut
     short = _maybe_server_shortcut(user_text)
     if short:
         history.append({"role":"user","content":user_text}); _persist_history(history)
@@ -369,7 +376,6 @@ def _ai_reply(user_text):
         return content
 
 def _html_page(body, title="GPT-5 Assistant"):
-    # AJAX chat; no page reloads after sending.
     tpl = """<!doctype html>
 <html><head><meta charset="utf-8"/><title>{title}</title></head>
 <body>
@@ -385,30 +391,16 @@ def _html_page(body, title="GPT-5 Assistant"):
   const liveBtn = document.getElementById('live');
   const stopBtn = document.getElementById('stop');
   const vstatus = document.getElementById('vstatus');
-  const btnSend = document.getElementById('btnSend');
-  const frm = document.querySelector('form[action="/ai_assistant"]');
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   function setStatus(t){{ if(vstatus) vstatus.textContent = t; }}
-  function logEl(){{ return document.getElementById('log'); }}
-
-  // Persist toggles
-  const ttsToggle = document.getElementById('tts');
-  const autoToggle = document.getElementById('autoResume');
-  try {{
-    const savedTTS = localStorage.getItem('ai_tts'); if (savedTTS!==null && ttsToggle) ttsToggle.checked = savedTTS==='1';
-    const savedAuto = localStorage.getItem('ai_autoresume'); if (savedAuto!==null && autoToggle) autoToggle.checked = savedAuto==='1';
-    if (ttsToggle) ttsToggle.addEventListener('change', ()=>localStorage.setItem('ai_tts', ttsToggle.checked?'1':'0'));
-    if (autoToggle) autoToggle.addEventListener('change', ()=>localStorage.setItem('ai_autoresume', autoToggle.checked?'1':'0'));
-  }} catch(e){{}}
-
   function detectLang(s){{
     if(!s) return (navigator.language||'en').slice(0,2);
-    if(/[\\u0600-\\u06FF]/.test(s)) return 'ar';
-    if(/[\\u0400-\\u04FF]/.test(s)) return 'ru';
-    if(/[\\u4E00-\\u9FFF]/.test(s)) return 'zh';
-    if(/[\\u0900-\\u097F]/.test(s)) return 'hi';
-    if(/[\\u3040-\\u30FF]/.test(s)) return 'ja';
-    if(/[\\uAC00-\\uD7AF]/.test(s)) return 'ko';
+    if(/[\u0600-\u06FF]/.test(s)) return 'ar';
+    if(/[\u0400-\u04FF]/.test(s)) return 'ru';
+    if(/[\u4E00-\u9FFF]/.test(s)) return 'zh';
+    if(/[\u0900-\u097F]/.test(s)) return 'hi';
+    if(/[\u3040-\u30FF]/.test(s)) return 'ja';
+    if(/[\uAC00-\uD7AF]/.test(s)) return 'ko';
     return 'en';
   }}
   function pickVoice(lang2){{
@@ -424,112 +416,58 @@ def _html_page(body, title="GPT-5 Assistant"):
     }}catch(e){{ return null; }}
   }}
   function speak(text){{
-    try{{
-      const ttsEl = document.getElementById('tts');
-      if (ttsEl && !ttsEl.checked) return null;
-      if (!window.speechSynthesis) return null;
-      const wasLive = !!window.__liveActive;
-      if (wasLive && typeof window.stopLive === 'function') {{ try {{ window.stopLive(); }} catch(e) {{}} }}
-      const lang2 = detectLang(text||'');
-      const u = new SpeechSynthesisUtterance(text||'');
-      const v = pickVoice(lang2);
-      if (v) {{ u.voice=v; u.lang=v.lang||u.lang; }}
-      else {{ u.lang=(lang2==='ar'?'ar-SA': lang2==='ru'?'ru-RU': lang2==='zh'?'zh-CN': lang2==='hi'?'hi-IN': lang2==='ja'?'ja-JP': lang2==='ko'?'ko-KR':'en-US'); }}
-      u.rate=1.0; u.pitch=1.0;
-      window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
-      u.onend = function(){{
-        const autoEl = document.getElementById('autoResume');
-        if (wasLive && autoEl && autoEl.checked && typeof window.startLive==='function') {{
-          try {{ window.__liveActive = true; window.startLive(true); }} catch(e) {{}}
-        }}
-      }};
-      return u;
-    }}catch(e){{ return null; }}
+    if(!window.speechSynthesis) return;
+    const lang2 = detectLang(text);
+    const u = new SpeechSynthesisUtterance(text);
+    const v = pickVoice(lang2);
+    if(v) u.voice = v;
+    u.lang = (v && v.lang) || (lang2==='ar'?'ar-SA': lang2==='ru'?'ru-RU': lang2==='zh'?'zh-CN': lang2==='hi'?'hi-IN': lang2==='ja'?'ja-JP': lang2==='ko'?'ko-KR':'en-US');
+    window.speechSynthesis.speak(u);
+    return u;
   }}
-  function appendMessage(who, txt){{
-    const log = logEl(); if(!log) return;
-    const div = document.createElement('div');
-    div.innerHTML = '<b>'+who+':</b><pre style="white-space:pre-wrap;margin:6px 0"></pre>';
-    div.querySelector('pre').textContent = txt||'';
-    log.appendChild(div); log.scrollTop = log.scrollHeight;
-  }}
-
-  async function sendText(text){{
-    appendMessage('You', text);
-    try {{
-      const r = await fetch('/ai_assistant/api/send', {{
-        method: 'POST',
-        headers: {{ 'Content-Type': 'application/json' }},
-        body: JSON.stringify({{ message: text }})
-      }});
-      const data = await r.json();
-      if (data && data.reply) {{
-        appendMessage('Assistant', data.reply);
-        speak(data.reply);
-      }} else if (data && data.error) {{
-        appendMessage('Assistant', '⚠ '+data.error);
-      }} else {{
-        appendMessage('Assistant', '(no reply)');
+  // Auto-speak last assistant reply once
+  try{{
+    const ta = document.getElementById('last_assistant_text');
+    const txt = ta ? (ta.value||'').trim() : '';
+    if(txt){{
+      const key='ai_last_spoken';
+      const hash = Array.from(txt).reduce((a,c)=>((a*31 + c.charCodeAt(0))>>>0),0).toString();
+      const prev = sessionStorage.getItem(key);
+      if(prev!==hash){{
+        const u = speak(txt);
+        sessionStorage.setItem(key, hash);
+        if(u){{ u.onend = function(){{ try{{ if(window.__liveActive) window.startLive(true); }}catch(e){{}} }} }}
       }}
-    }} catch(e) {{
-      appendMessage('Assistant', '⚠ network error');
     }}
-  }}
-
-  // Intercept form submit to avoid reload
-  if (frm) {{
-    frm.addEventListener('submit', function(ev){{
-      ev.preventDefault();
-      const t = (input && input.value||'').trim();
-      if(!t) return;
-      input.value = '';
-      sendText(t);
-    }});
-  }}
-  if (btnSend) {{
-    btnSend.addEventListener('click', function(){{
-      const t = (input && input.value||'').trim();
-      if(!t) return;
-      input.value = '';
-      sendText(t);
-    }});
-  }}
-
-  // One-shot mic
+  }}catch(e){{}}
+  // Quick mic
   if (micBtn && SR){{
     try{{
       const rec = new SR();
       rec.lang = (navigator.language||'en-US'); rec.continuous = false; rec.interimResults = false;
       micBtn.addEventListener('click', function(){{ try{{ setStatus('Listening…'); rec.lang=(navigator.language||'en-US'); rec.start(); }}catch(e){{ setStatus(''); }} }});
-      rec.onresult = function(ev){{ try{{ let t = ev.results[0][0].transcript||''; if (input) input.value=t; setStatus(''); }}catch(e){{}} }};
-      rec.onerror = function(){{ setStatus('Mic error'); }};
+      rec.onresult = function(ev){{ try{{ let t = ev.results[0][0].transcript; if (input) {{ input.value = t; }} setStatus(''); }}catch(e){{}} }};
+      rec.onerror = function(e){{ setStatus('Mic error'); }};
       rec.onend = function(){{ setStatus(''); }};
-    }}catch(e){{}}
-  }} else if (micBtn) {{
-    micBtn.addEventListener('click', function(){{ alert('Voice input not supported in this browser.'); }});
-  }}
-
-  // Live mic (continuous)
+    }}catch(e){{ /* ignore */ }}
+  }} else if (micBtn && !SR){{ micBtn.addEventListener('click', function(){{ alert('Voice input not supported in this browser.'); }}); }}
+  // Live with dynamic language switching
   let recog = null;
-  window.startLive = function(){{
+  function autoSend(){{ try{{ var form = document.querySelector('form[action="/ai_assistant"]'); if(!form) return; var fd = new FormData(form); fetch('/ai_assistant', {{ method:'POST', body:fd }}).then(function(){{ location.reload(); }}); }}catch(e){{}} }}
+  window.startLive = function(resume){{
     const SR2 = SR; if (!SR2){{ alert('Your browser does not support voice input.'); return; }}
     window.__liveActive = true; setStatus('Listening…');
     try{{
       if(recog){{ try{{ recog.stop(); }}catch(e){{}} recog=null; }}
       recog = new SR2(); recog.lang=(navigator.language||'en-US'); recog.continuous=true; recog.interimResults=true;
-      recog.onresult = function(ev){{
-        let str=''; for(let i=ev.resultIndex;i<ev.results.length;i++){{ str += ev.results[i][0].transcript; }}
-        if(input) input.value=str;
-        const last = ev.results[ev.results.length-1];
-        if(last && last.isFinal){{ const finalText=(str||'').trim(); if(finalText){{ if(input) input.value=''; sendText(finalText); }} }}
-      }};
-      recog.onerror = function(){{ setStatus('Mic error'); }};
+      let partial = '', curLang = recog.lang;
+      recog.onresult = function(ev){{ try{{ for(let i=ev.resultIndex;i<ev.results.length;i++){{ var r=ev.results[i]; partial += r[0].transcript; var guess = detectLang(partial); var map={{ar:'ar-SA',en:'en-US',ru:'ru-RU',zh:'zh-CN',hi:'hi-IN',ja:'ja-JP',ko:'ko-KR'}}; var want = map[guess]||'en-US'; if(want!==curLang){{ try{{ recog.stop(); }}catch(e){{}} curLang=want; setTimeout(function(){{ try{{ recog.lang=curLang; recog.start(); }}catch(e){{}} }}, 200); return; }} if(r.isFinal){{ if(input) input.value = partial.trim(); partial=''; autoSend(); }} else {{ if(input) input.value = partial; }} }} }}catch(e){{}} }};
+      recog.onerror = function(e){{ setStatus('Mic error'); }};
       recog.onend = function(){{ if(window.__liveActive){{ try{{ recog.start(); }}catch(e){{}} }} else {{ setStatus(''); }} }};
       recog.start();
     }}catch(e){{ setStatus('Mic blocked'); }}
   }};
   window.stopLive = function(){{ window.__liveActive=false; try{{ recog && recog.stop(); }}catch(e){{}} setStatus(''); }};
-
   if (liveBtn) liveBtn.addEventListener('click', function(){{ window.startLive(); }});
   if (stopBtn) stopBtn.addEventListener('click', function(){{ window.stopLive(); }});
 }})();</script>
@@ -559,37 +497,37 @@ class AIAssistantController(http.Controller):
         answer = ""
         error = ""
         if request.httprequest.method == 'POST':
-            # We still accept POST for compatibility but the page JS now sends via /ai_assistant/api/send
             user_msg = (post.get('message') or '').strip()
             if user_msg:
                 try:
                     answer = _ai_reply(user_msg)
                 except Exception as e:
                     error = _html.escape(str(e))
-
         def render_msg(m):
             role = m.get('role')
             who = "You" if role == "user" else ("Assistant" if role == "assistant" else role)
             content = _html.escape(m.get('content') or "")
             return f"<div><b>{who}:</b><pre style='white-space:pre-wrap'>{content}</pre></div>"
-
         chat_html = "".join(render_msg(m) for m in history)
 
-        body = f"""
-        <p style="font-size:90%%">⚠️ Never paste API keys here. Configure them in <a href="/ai_assistant/settings">Settings</a>.</p>
-        <div id="log" style="max-height:70vh;overflow-y:auto;border:1px solid #ccc;padding:8px;margin:8px 0;">{chat_html}</div>
+        form = """
         <form method="post" action="/ai_assistant">
             <label>Message</label><br/>
             <textarea id="msg" name="message" rows="3" style="width:100%%" placeholder="اكتب سؤالك هنا / Type your question..."></textarea><br/>
-            <button type="submit" id="btnSend">Send</button>
+            <button type="submit">Send</button>
             <button type="button" id="mic" title="Voice input (browser)">🎤</button>
             <button type="button" id="live" title="Live voice chat (continuous)">🎙 Live</button>
             <button type="button" id="stop" title="Stop listening">⏹ Stop</button>
-            <span id="vstatus" style="font-size:90%%"></span>
-            <br/>
-            <label style="margin-right:12px"><input id="tts" type="checkbox" checked> 🔊 Speak replies</label>
-            <label><input id="autoResume" type="checkbox" checked> 🎙️ Auto-resume mic</label>
+            <span id="vstatus" style="font-size:90%"></span>
         </form>
+        """
+        if answer:
+            form += f"<script>try{{speak({json.dumps(answer)})}}catch(e){{}};</script>"
+        body = f"""
+        <p style="font-size:90%%">⚠️ Never paste API keys here. Configure them in <a href="/ai_assistant/settings">Settings</a>.</p>
+        <div id="log" style="max-height:70vh;overflow-y:auto;border:1px solid #ccc;padding:8px;margin:8px 0;">{chat_html}</div>
+        {form}
+        <script>try{{var el=document.getElementById('log'); if(el){{el.scrollTop=el.scrollHeight;}}}}catch(e){{}}</script>
         """
         if error:
             body = f"<div style='color:red'><b>Error:</b> {error}</div>" + body
@@ -697,14 +635,17 @@ class AIAssistantController(http.Controller):
 class AIAssistantLiveController(http.Controller):
     @http.route(['/ai_assistant/api/send'], type='json', auth='user', methods=['POST'], csrf=False)
     def api_send(self, **post):
-        msg = ''
+        """Accept both JSON-RPC wrapped and plain JSON; return plain dict (Odoo wraps it)."""
         try:
-            if isinstance(post, dict):
-                msg = (post.get('message') or '').strip()
+            payload = request.jsonrequest or {}
         except Exception:
-            msg = ''
+            payload = {}
+        if isinstance(post, dict):
+            payload = {**payload, **post}
+
+        msg = (payload.get('message') or '').strip()
         if not msg:
-            return {'error': 'empty'}
+            return {'ok': False, 'error': 'empty'}
         try:
             reply = _ai_reply(msg)
             return {'ok': True, 'reply': reply}
@@ -792,15 +733,21 @@ button{padding:6px 12px;margin-right:6px}
   async function sendAjax(text){
     appendMessage('You', text);
     try{
-      const r = await fetch('/ai_assistant/api/send', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message:text})});
-      const data = await r.json();
-      if(data && data.reply){
+      const r = await fetch('/ai_assistant/api/send', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({message:text})
+      });
+      const raw = await r.json();                      // may be {"jsonrpc":"2.0","result":{...}}
+      const data = (raw && typeof raw==='object' && 'result' in raw) ? raw.result : raw;
+
+      if (data && data.ok && typeof data.reply === 'string') {
         appendMessage('Assistant', data.reply);
         const u = speak(data.reply);
         if(u){ u.onend = function(){ if(liveActive) startLive(true); }; }
-      }else if(data && data.error){
-        appendMessage('Assistant', '⚠ '+data.error);
-      }else{
+      } else if (data && data.error) {
+        appendMessage('Assistant', '⚠ ' + data.error);
+      } else {
         appendMessage('Assistant', '(no reply)');
       }
     }catch(e){
@@ -816,6 +763,8 @@ button{padding:6px 12px;margin-right:6px}
   }
   function startLive(){
     if(!SR){ setStatus('speech API not supported'); return; }
+    // Prevent feedback loop: stop TTS before listening
+    try{ window.speechSynthesis && window.speechSynthesis.cancel(); }catch(e){}
     liveActive = true;
     if(recog){ try{recog.stop();}catch(e){} recog=null; }
     recog = new SR();
