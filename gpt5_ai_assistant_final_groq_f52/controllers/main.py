@@ -119,7 +119,6 @@ def _is_affirmative(text:str) -> bool:
     t = (text or "").strip().lower()
     return (t in AFFIRMATIVE_PATTERNS) or any(tok in t for tok in AFFIRMATIVE_PATTERNS)
 
-
 def _persist_history(history):
     try:
         request.session['ai_messages'] = history
@@ -129,7 +128,6 @@ def _persist_history(history):
     except Exception:
         # Fallback: force reassign
         request.session['ai_messages'] = list(history or [])
-
 
 def _assistant_was_confirming() -> bool:
     history = _ensure_messages(); _persist_history(history)
@@ -387,6 +385,7 @@ def _ai_reply(user_text):
         return content
 
 def _html_page(body, title="GPT-5 Assistant"):
+    # NOTE: includes TTS + mic auto-resume toggles. Works on pages that include those elements.
     tpl = """<!doctype html>
 <html><head><meta charset="utf-8"/><title>{title}</title></head>
 <body>
@@ -404,16 +403,18 @@ def _html_page(body, title="GPT-5 Assistant"):
   const vstatus = document.getElementById('vstatus');
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   function setStatus(t){{ if(vstatus) vstatus.textContent = t; }}
+
   function detectLang(s){{
     if(!s) return (navigator.language||'en').slice(0,2);
-    if(/[\u0600-\u06FF]/.test(s)) return 'ar';
-    if(/[\u0400-\u04FF]/.test(s)) return 'ru';
-    if(/[\u4E00-\u9FFF]/.test(s)) return 'zh';
-    if(/[\u0900-\u097F]/.test(s)) return 'hi';
-    if(/[\u3040-\u30FF]/.test(s)) return 'ja';
-    if(/[\uAC00-\uD7AF]/.test(s)) return 'ko';
+    if(/[\\u0600-\\u06FF]/.test(s)) return 'ar';
+    if(/[\\u0400-\\u04FF]/.test(s)) return 'ru';
+    if(/[\\u4E00-\\u9FFF]/.test(s)) return 'zh';
+    if(/[\\u0900-\\u097F]/.test(s)) return 'hi';
+    if(/[\\u3040-\\u30FF]/.test(s)) return 'ja';
+    if(/[\\uAC00-\\uD7AF]/.test(s)) return 'ko';
     return 'en';
   }}
+
   function pickVoice(lang2){{
     try{{
       const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
@@ -426,17 +427,39 @@ def _html_page(body, title="GPT-5 Assistant"):
       return v || null;
     }}catch(e){{ return null; }}
   }}
+
   function speak(text){{
-    if(!window.speechSynthesis) return;
-    const lang2 = detectLang(text);
-    const u = new SpeechSynthesisUtterance(text);
-    const v = pickVoice(lang2);
-    if(v) u.voice = v;
-    u.lang = (v && v.lang) || (lang2==='ar'?'ar-SA': lang2==='ru'?'ru-RU': lang2==='zh'?'zh-CN': lang2==='hi'?'hi-IN': lang2==='ja'?'ja-JP': lang2==='ko'?'ko-KR':'en-US');
-    window.speechSynthesis.speak(u);
-    return u;
+    try{{
+      const ttsEl = document.getElementById('tts');
+      if (ttsEl && !ttsEl.checked) return null;        // allow disabling speech
+      if (!window.speechSynthesis) return null;
+
+      const wasLive = !!window.__liveActive;           // pause live mic to avoid echo
+      if (wasLive && typeof window.stopLive === 'function') {{
+        try {{ window.stopLive(); }} catch(e) {{}}
+      }}
+
+      const lang2 = detectLang(text||'');
+      const u = new SpeechSynthesisUtterance(text||'');
+      const v = pickVoice(lang2);
+      if (v) {{ u.voice = v; u.lang = v.lang || u.lang; }}
+      else {{ u.lang = (lang2==='ar'?'ar-SA': lang2==='ru'?'ru-RU': lang2==='zh'?'zh-CN': lang2==='hi'?'hi-IN': lang2==='ja'?'ja-JP': lang2==='ko'?'ko-KR':'en-US'); }}
+      u.rate = 1.0; u.pitch = 1.0;
+
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+
+      u.onend = function(){{
+        const autoEl = document.getElementById('autoResume');
+        if (wasLive && autoEl && autoEl.checked && typeof window.startLive === 'function') {{
+          try {{ window.__liveActive = true; window.startLive(true); }} catch(e) {{}}
+        }}
+      }};
+      return u;
+    }}catch(e){{ return null; }}
   }}
-  // Auto-speak last assistant reply once
+
+  // Auto-speak last assistant reply (only if page provides it)
   try{{
     const ta = document.getElementById('last_assistant_text');
     const txt = ta ? (ta.value||'').trim() : '';
@@ -451,18 +474,22 @@ def _html_page(body, title="GPT-5 Assistant"):
       }}
     }}
   }}catch(e){{}}
-  // Quick mic
+
+  // One-shot mic
   if (micBtn && SR){{
     try{{
       const rec = new SR();
       rec.lang = (navigator.language||'en-US'); rec.continuous = false; rec.interimResults = false;
       micBtn.addEventListener('click', function(){{ try{{ setStatus('Listening…'); rec.lang=(navigator.language||'en-US'); rec.start(); }}catch(e){{ setStatus(''); }} }});
       rec.onresult = function(ev){{ try{{ let t = ev.results[0][0].transcript; if (input) {{ input.value = t; }} setStatus(''); }}catch(e){{}} }};
-      rec.onerror = function(e){{ setStatus('Mic error'); }};
+      rec.onerror = function(){{ setStatus('Mic error'); }};
       rec.onend = function(){{ setStatus(''); }};
-    }}catch(e){{ /* ignore */ }}
-  }} else if (micBtn && !SR){{ micBtn.addEventListener('click', function(){{ alert('Voice input not supported in this browser.'); }}); }}
-  // Live with dynamic language switching
+    }}catch(e){{}}
+  }} else if (micBtn) {{
+    micBtn.addEventListener('click', function(){{ alert('Voice input not supported in this browser.'); }});
+  }}
+
+  // Live (continuous) with language auto-switch + safe restart
   let recog = null;
   function autoSend(){{ try{{ var form = document.querySelector('form[action="/ai_assistant"]'); if(!form) return; var fd = new FormData(form); fetch('/ai_assistant', {{ method:'POST', body:fd }}).then(function(){{ location.reload(); }}); }}catch(e){{}} }}
   window.startLive = function(resume){{
@@ -473,12 +500,13 @@ def _html_page(body, title="GPT-5 Assistant"):
       recog = new SR2(); recog.lang=(navigator.language||'en-US'); recog.continuous=true; recog.interimResults=true;
       let partial = '', curLang = recog.lang;
       recog.onresult = function(ev){{ try{{ for(let i=ev.resultIndex;i<ev.results.length;i++){{ var r=ev.results[i]; partial += r[0].transcript; var guess = detectLang(partial); var map={{ar:'ar-SA',en:'en-US',ru:'ru-RU',zh:'zh-CN',hi:'hi-IN',ja:'ja-JP',ko:'ko-KR'}}; var want = map[guess]||'en-US'; if(want!==curLang){{ try{{ recog.stop(); }}catch(e){{}} curLang=want; setTimeout(function(){{ try{{ recog.lang=curLang; recog.start(); }}catch(e){{}} }}, 200); return; }} if(r.isFinal){{ if(input) input.value = partial.trim(); partial=''; autoSend(); }} else {{ if(input) input.value = partial; }} }} }}catch(e){{}} }};
-      recog.onerror = function(e){{ setStatus('Mic error'); }};
+      recog.onerror = function(){{ setStatus('Mic error'); }};
       recog.onend = function(){{ if(window.__liveActive){{ try{{ recog.start(); }}catch(e){{}} }} else {{ setStatus(''); }} }};
       recog.start();
     }}catch(e){{ setStatus('Mic blocked'); }}
   }};
   window.stopLive = function(){{ window.__liveActive=false; try{{ recog && recog.stop(); }}catch(e){{}} setStatus(''); }};
+
   if (liveBtn) liveBtn.addEventListener('click', function(){{ window.startLive(); }});
   if (stopBtn) stopBtn.addEventListener('click', function(){{ window.stopLive(); }});
 }})();</script>
@@ -502,7 +530,6 @@ class AIAssistantController(http.Controller):
         ]
         return request.make_response(payload, headers=headers)
 
-
     @http.route(['/ai_assistant', '/ai_assistant/'], type='http', auth='user', methods=['GET','POST'], csrf=False)
     def chat(self, **post):
         history = _ensure_messages(); _persist_history(history)
@@ -515,12 +542,15 @@ class AIAssistantController(http.Controller):
                     answer = _ai_reply(user_msg)
                 except Exception as e:
                     error = _html.escape(str(e))
+
         def render_msg(m):
             role = m.get('role')
             who = "You" if role == "user" else ("Assistant" if role == "assistant" else role)
             content = _html.escape(m.get('content') or "")
             return f"<div><b>{who}:</b><pre style='white-space:pre-wrap'>{content}</pre></div>"
+
         chat_html = "".join(render_msg(m) for m in history)
+
         last_assistant = ''
         for _m in reversed(history):
             if (_m or {}).get('role') == 'assistant':
@@ -535,17 +565,25 @@ class AIAssistantController(http.Controller):
             <button type="button" id="mic" title="Voice input (browser)">🎤</button>
             <button type="button" id="live" title="Live voice chat (continuous)">🎙 Live</button>
             <button type="button" id="stop" title="Stop listening">⏹ Stop</button>
-            <span id="vstatus" style="font-size:90%"></span>
+            <span id="vstatus" style="font-size:90%%"></span>
+            <br/>
+            <label style="margin-right:12px"><input id="tts" type="checkbox" checked> 🔊 Speak replies</label>
+            <label><input id="autoResume" type="checkbox" checked> 🎙️ Auto-resume mic</label>
         </form>
         """
+
+        # Speak the new server reply (if any)
         if answer:
             form += f"<script>try{{speak({json.dumps(answer)})}}catch(e){{}};</script>"
+
         body = f"""
         <p style="font-size:90%%">⚠️ Never paste API keys here. Configure them in <a href="/ai_assistant/settings">Settings</a>.</p>
         <div id="log" style="max-height:70vh;overflow-y:auto;border:1px solid #ccc;padding:8px;margin:8px 0;">{chat_html}</div>
+        <textarea id="last_assistant_text" style="display:none">{_html.escape(last_assistant)}</textarea>
         {form}
         <script>try{{var el=document.getElementById('log'); if(el){{el.scrollTop=el.scrollHeight;}}}}catch(e){{}}</script>
         """
+
         if error:
             body = f"<div style='color:red'><b>Error:</b> {error}</div>" + body
         return _html_page(body, "GPT-5 Assistant — Chat")
@@ -648,7 +686,6 @@ class AIAssistantController(http.Controller):
             body += f"<div style='color:red'><b>Error:</b> {_html.escape(err)}</div>"
         return _html_page(body, "GPT-5 Assistant — Diagnostics")
 
-
 class AIAssistantLiveController(http.Controller):
     @http.route(['/ai_assistant/api/send'], type='json', auth='user', methods=['POST'], csrf=False)
     def api_send(self, **post):
@@ -706,7 +743,7 @@ button{padding:6px 12px;margin-right:6px}
     if(/[\\u0400-\\u04FF]/.test(s)) return 'ru';
     if(/[\\u4E00-\\u9FFF]/.test(s)) return 'zh';
     if(/[\\u0900-\\u097F]/.test(s)) return 'hi';
-    if(/[\\u3040-\\u30FF]/.test(s)) return 'ja';
+    if/[\\u3040-\\u30FF]/.test(s) return 'ja';
     if(/[\\uAC00-\\uD7AF]/.test(s)) return 'ko';
     return 'en';
   }
