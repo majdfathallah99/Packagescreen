@@ -364,7 +364,7 @@ def _ai_reply(user_text):
         return content
 
 def _html_page(body, title="GPT-5 Assistant"):
-    # Use % formatting to avoid crashing on JS braces.
+    # Use %% escaping for literal % in CSS/JS.
     tpl = """<!doctype html>
 <html><head><meta charset="utf-8"/><title>%(title)s</title></head>
 <body>
@@ -375,14 +375,7 @@ def _html_page(body, title="GPT-5 Assistant"):
 <p><a href="/ai_assistant">Chat</a> • <a href="/ai_assistant/settings">Settings</a> • <a href="/ai_assistant/clear">New chat</a> • <a href="/ai_assistant/diag">Diagnostics</a> • <a href="/ai_assistant/export">Export</a></p>
 </div>
 <script>(function(){
-  const micBtn = document.getElementById('mic');
-  const input = document.getElementById('msg');
-  const liveBtn = document.getElementById('live');
-  const stopBtn = document.getElementById('stop');
-  const vstatus = document.getElementById('vstatus');
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-  function setStatus(t){ if(vstatus) vstatus.textContent = t; }
+  // ---------- Shared voice utils ----------
   function detectLang(s){
     if(!s) return (navigator.language||'en').slice(0,2);
     if(/[\\u0600-\\u06FF]/.test(s)) return 'ar';
@@ -407,9 +400,22 @@ def _html_page(body, title="GPT-5 Assistant"):
       return v || voices[0] || null;
     } catch(e) { return null; }
   }
-  function speak(text){
+  function waitVoices(){
+    return new Promise(function(resolve){
+      if(!window.speechSynthesis){ resolve(); return; }
+      const have = window.speechSynthesis.getVoices();
+      if (have && have.length){ resolve(); return; }
+      const t = setInterval(function(){
+        const vv = window.speechSynthesis.getVoices();
+        if (vv && vv.length){ clearInterval(t); resolve(); }
+      }, 100);
+      setTimeout(function(){ try{clearInterval(t);}catch(e){} resolve(); }, 1500);
+    });
+  }
+  async function speak(text){
     if(!window.speechSynthesis) return null;
     try{ window.speechSynthesis.cancel(); }catch(e){}
+    await waitVoices();
     const lang2 = detectLang(text||'');
     const u = new SpeechSynthesisUtterance(text||'');
     const v = pickVoice(lang2);
@@ -418,13 +424,21 @@ def _html_page(body, title="GPT-5 Assistant"):
     window.speechSynthesis.speak(u);
     return u;
   }
-  // expose for other inline snippets
   window.speak = speak;
 
-  // De-duplicate repeated words and halves
+  // ---------- Optional mic on Settings/Chat ----------
+  const micBtn = document.getElementById('mic');
+  const input = document.getElementById('msg');
+  const liveBtn = document.getElementById('live');
+  const stopBtn = document.getElementById('stop');
+  const vstatus = document.getElementById('vstatus');
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  function setStatus(t){ if(vstatus) vstatus.textContent = t; }
+
   function dedupe(s){
     s = (s||'').replace(/\\s+/g,' ').trim();
-    s = s.replace(/\\b(\\w+)(\\s+\\1\\b)+/gi, '$1');
+    s = s.replace(/\\b(\\w+)(\\s+\\1\\b)+/gi,'$1');
     if(s.length>4 && s.length%%2===0){
       const h=s.slice(0,s.length/2);
       if((h+h).toLowerCase()===s.toLowerCase()) s=h;
@@ -432,7 +446,6 @@ def _html_page(body, title="GPT-5 Assistant"):
     return s;
   }
 
-  // Quick mic (single utterance)
   if (micBtn && SR) {
     try {
       const rec = new SR();
@@ -455,43 +468,11 @@ def _html_page(body, title="GPT-5 Assistant"):
     micBtn.addEventListener('click', function(){ alert('Voice input not supported in this browser.'); });
   }
 
-  // Live hooks (harmless on this page)
+  // Simple live helpers present on the Live page only (safe here)
   let recog = null;
-  function autoSend(){
-    try{
-      var form = document.querySelector('form[action="/ai_assistant"]');
-      if(!form) return;
-      var fd = new FormData(form);
-      fetch('/ai_assistant', { method:'POST', body:fd }).then(function(){ location.reload(); });
-    }catch(e){}
-  }
-  window.startLive = function(){
-    const SR2 = SR; if(!SR2){ alert('Your browser does not support voice input.'); return; }
-    try{ window.speechSynthesis && window.speechSynthesis.cancel(); }catch(e){}
-    try{
-      if(recog){ try{recog.stop();}catch(e){} recog=null; }
-      recog = new SR2(); recog.lang=(navigator.language||'en-US'); recog.continuous=true; recog.interimResults=true;
-      let finalText = '', interim = '';
-      recog.onresult = function(ev){
-        for(let i=ev.resultIndex;i<ev.results.length;i++){
-          const r = ev.results[i]; const t = r[0].transcript;
-          if(r.isFinal) finalText += ' ' + t; else interim = t;
-        }
-        if(input) input.value = dedupe((finalText + ' ' + interim).trim());
-        const last = ev.results[ev.results.length-1];
-        if(last && last.isFinal){
-          const out = dedupe(finalText).trim();
-          if(out){ if(input) input.value = out; autoSend(); }
-          finalText=''; interim='';
-        }
-      };
-      recog.start();
-    }catch(e){ setStatus('Mic blocked'); }
-  };
-  window.stopLive = function(){ try{ recog && recog.stop(); }catch(e){} setStatus(''); };
+  window.startLive = function(){};
+  window.stopLive = function(){};
 
-  if (liveBtn) liveBtn.addEventListener('click', function(){ window.startLive(); });
-  if (stopBtn) stopBtn.addEventListener('click', function(){ window.stopLive(); });
 })();</script>
 </body></html>"""
     return tpl % {"title": _html.escape(title), "body": body}
@@ -534,20 +515,54 @@ class AIAssistantController(http.Controller):
 
         chat_html = "".join(render_msg(m) for m in history)
 
+        # Chat form (AJAX wired below so there is no page refresh; TTS will run after your click)
         form = """
-        <form method="post" action="/ai_assistant">
+        <form id="ai_form" method="post" action="/ai_assistant">
             <label>Message</label><br/>
             <textarea id="msg" name="message" rows="3" style="width:100%%" placeholder="اكتب سؤالك هنا / Type your question..."></textarea><br/>
-            <button type="submit">Send</button>
+            <button type="submit" id="send_btn">Send</button>
             <button type="button" id="mic" title="Voice input (browser)">🎤</button>
             <button type="button" id="live" title="Live voice chat (continuous)">🎙 Live</button>
             <button type="button" id="stop" title="Stop listening">⏹ Stop</button>
             <span id="vstatus" style="font-size:90%%"></span>
         </form>
+        <script>(function(){
+          const form = document.getElementById('ai_form');
+          const input = document.getElementById('msg');
+          const log = document.getElementById('log');
+          function append(who, txt){
+            const div = document.createElement('div');
+            div.innerHTML = '<b>'+who+':</b><pre style="white-space:pre-wrap"></pre>';
+            div.querySelector('pre').textContent = txt || '';
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+          }
+          async function sendAjax(text){
+            append('You', text);
+            try{
+              const r = await fetch('/ai_assistant/api/send', {
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({message:text})
+              });
+              const raw = await r.json();
+              const data = (raw && typeof raw==='object' && 'result' in raw) ? raw.result : raw;
+              const reply = (data && data.reply) || (data && data.error && ('⚠ '+data.error)) || '(no reply)';
+              append('Assistant', reply);
+              if(data && data.reply){ try{ window.speak && window.speak(data.reply); }catch(e){} }
+            }catch(e){
+              append('Assistant','⚠ network error');
+            }
+          }
+          form.addEventListener('submit', function(ev){
+            ev.preventDefault();
+            const t = (input.value||'').trim();
+            if(!t) return;
+            input.value = '';
+            sendAjax(t);
+          });
+        })();</script>
         """
-        if answer:
-            # Speak the new answer once, using the global speak() from the wrapper.
-            form += f"<script>try{{ if(window.speechSynthesis){{ speechSynthesis.cancel(); }} var u = window.speak && window.speak({json.dumps(answer)}); }}catch(e){{}};</script>"
 
         body = f"""
         <p style="font-size:90%%">⚠️ Never paste API keys here. Configure them in <a href="/ai_assistant/settings">Settings</a>.</p>
@@ -662,7 +677,7 @@ class AIAssistantLiveController(http.Controller):
 
     @http.route(['/ai_assistant/api/send'], type='json', auth='user', methods=['POST'], csrf=False)
     def api_send(self, **post):
-        # Support both JSON-RPC wrapper and plain JSON; Odoo may wrap dicts under {"result": ...}
+        # Support both JSON-RPC wrapper and plain JSON
         try:
             payload = request.jsonrequest or {}
         except Exception:
@@ -751,6 +766,7 @@ button{padding:6px 12px;margin-right:6px}
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(txt||'');
       const lang2 = detectLang(txt||'');
+      const voicesReady = speechSynthesis.getVoices();
       const v = pickVoice(lang2);
       if(v){ u.voice=v; u.lang=v.lang; } else { u.lang=(lang2==='ar'?'ar-SA':'en-US'); }
       u.rate = 1.0; u.pitch = 1.0;
