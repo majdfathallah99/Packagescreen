@@ -364,7 +364,7 @@ def _ai_reply(user_text):
         return content
 
 def _html_page(body, title="GPT-5 Assistant"):
-    # Use plain token replacement to avoid formatting collisions with % or { } in JS/CSS.
+    # Safe token replacement to avoid % / {} collisions
     tpl = """<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"/>
@@ -379,7 +379,25 @@ __BODY__
 <p><a href="/ai_assistant">Chat</a> • <a href="/ai_assistant/settings">Settings</a> • <a href="/ai_assistant/clear">New chat</a> • <a href="/ai_assistant/diag">Diagnostics</a> • <a href="/ai_assistant/export">Export</a></p>
 </div>
 <script>(function(){
-  // ---- Voice helpers ----
+  // ------- Voice + Live logic (echo-safe) -------
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const micBtn  = document.getElementById('mic');
+  const liveBtn = document.getElementById('live');
+  const stopBtn = document.getElementById('stop');
+  const vstatus = document.getElementById('vstatus');
+  const input   = document.getElementById('msg');
+  const logEl   = document.getElementById('log');
+  const form    = document.getElementById('ai_form');
+
+  function setStatus(t){ if(vstatus) vstatus.textContent = t; }
+  function append(who, txt){
+    if(!logEl) return;
+    const div = document.createElement('div');
+    div.innerHTML = '<b>'+who+':</b><pre style="white-space:pre-wrap"></pre>';
+    div.querySelector('pre').textContent = txt||'';
+    logEl.appendChild(div); logEl.scrollTop = logEl.scrollHeight;
+  }
+
   function detectLang(s){
     if(!s) return (navigator.language||'en').slice(0,2);
     if(/[\\u0600-\\u06FF]/.test(s)) return 'ar';
@@ -407,8 +425,8 @@ __BODY__
   function waitVoices(){
     return new Promise(function(resolve){
       if(!window.speechSynthesis){ resolve(); return; }
-      const have = window.speechSynthesis.getVoices();
-      if (have && have.length){ resolve(); return; }
+      const now = window.speechSynthesis.getVoices();
+      if (now && now.length){ resolve(); return; }
       const t = setInterval(function(){
         const vv = window.speechSynthesis.getVoices();
         if (vv && vv.length){ clearInterval(t); resolve(); }
@@ -416,50 +434,56 @@ __BODY__
       setTimeout(function(){ try{clearInterval(t);}catch(e){} resolve(); }, 1500);
     });
   }
-  let ttsSpeaking = false;
+  function norm(s){
+    return (s||'')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu,' ')
+      .replace(/\\s+/g,' ')
+      .trim();
+  }
+  function looksLikeEcho(candidate, lastAssistant){
+    const a = norm(candidate), b = norm(lastAssistant);
+    if(!a || !b) return false;
+    if(a === b) return true;
+    if(a.length >= 12 && (b.includes(a) || a.includes(b))) return true;
+    const A = new Set(a.split(' ')), B = new Set(b.split(' '));
+    let inter = 0; A.forEach(w=>{ if(B.has(w)) inter++; });
+    const ratio = inter / Math.max(1, Math.min(A.size, B.size));
+    return (ratio >= 0.8 && Math.min(a.length,b.length) >= 12);
+  }
+
+  let recog = null;
+  window.__liveActive = false;
+  window.__asrPausedByTTS = false;
+  window.__lastAssistantText = '';
+
   async function speak(text){
     if(!window.speechSynthesis) return null;
     try{ window.speechSynthesis.cancel(); }catch(e){}
     await waitVoices();
+
+    // Pause ASR while speaking to prevent feedback
+    window.__asrPausedByTTS = true;
+    if(recog){ try{recog.stop();}catch(e){} }
+
     const lang2 = detectLang(text||'');
     const u = new SpeechSynthesisUtterance(text||'');
     const v = pickVoice(lang2);
     if(v){ u.voice=v; u.lang=v.lang; } else { u.lang = (lang2==='ar'?'ar-SA':'en-US'); }
     u.rate = 1.0; u.pitch = 1.0;
-    u.onstart = function(){ ttsSpeaking = true; };
-    u.onend   = function(){ ttsSpeaking = false; try{ window.__resumeAfterTTS && window.__resumeAfterTTS(); }catch(e){} };
+
+    u.onend = function(){
+      window.__asrPausedByTTS = false;
+      if(window.__liveActive){
+        // small delay to avoid tail pickup
+        setTimeout(function(){ try{ startLive(true); }catch(e){} }, 250);
+      }
+    };
     window.speechSynthesis.speak(u);
     return u;
   }
   window.speak = speak;
 
-  // ---- Chat wiring (works on the /ai_assistant page) ----
-  const micBtn  = document.getElementById('mic');
-  const liveBtn = document.getElementById('live');
-  const stopBtn = document.getElementById('stop');
-  const vstatus = document.getElementById('vstatus');
-  const input   = document.getElementById('msg');
-  const logEl   = document.getElementById('log');
-  const form    = document.getElementById('ai_form');
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-  function setStatus(t){ if(vstatus) vstatus.textContent = t; }
-  function append(who, txt){
-    if(!logEl) return;
-    const div = document.createElement('div');
-    div.innerHTML = '<b>'+who+':</b><pre style="white-space:pre-wrap"></pre>';
-    div.querySelector('pre').textContent = txt || '';
-    logEl.appendChild(div); logEl.scrollTop = logEl.scrollHeight;
-  }
-  function dedupe(s){
-    s = (s||'').replace(/\\s+/g,' ').trim();
-    s = s.replace(/\\b(\\w+)(\\s+\\1\\b)+/gi,'$1');
-    if(s.length>4 && s.length%2===0){
-      const h=s.slice(0,s.length/2);
-      if((h+h).toLowerCase()===s.toLowerCase()) s=h;
-    }
-    return s;
-  }
   async function sendAjax(text){
     append('You', text);
     try{
@@ -478,92 +502,114 @@ __BODY__
         replyText = '⚠ ' + data.error;
       }
       append('Assistant', replyText);
+
       if (data && data.reply) {
-        const wasLive = window.__liveActive === true;
-        window.__liveActive = false; // pause ASR while TTS
+        window.__lastAssistantText = data.reply;
+        const wasLive = window.__liveActive;
+        window.__liveActive = wasLive; // keep flag
         await speak(data.reply);
-        window.__resumeAfterTTS = function(){ if(wasLive) startLive(true); };
       }
     }catch(e){
       append('Assistant','⚠ network error');
     }
   }
 
-  if (form){
-    form.addEventListener('submit', function(ev){
+  // Submit (no page reload)
+  const formEl = document.getElementById('ai_form');
+  if (formEl){
+    formEl.addEventListener('submit', function(ev){
       ev.preventDefault();
-      const t = (input.value||'').trim();
+      const t = (input && input.value || '').trim();
       if(!t) return;
       input.value = '';
       sendAjax(t);
     });
   }
 
-  // Quick mic
+  function dedupe(s){
+    s = (s||'').replace(/\\s+/g,' ').trim();
+    s = s.replace(/\\b(\\w+)(\\s+\\1\\b)+/gi,'$1');
+    if(s.length>4 && s.length%2===0){
+      const h=s.slice(0,s.length/2);
+      if((h+h).toLowerCase()===s.toLowerCase()) s=h;
+    }
+    return s;
+  }
+
+  // Quick mic (single shot)
   if (micBtn && SR){
     try{
       const rec = new SR();
-      rec.lang = (navigator.language||'en-US'); rec.continuous = false; rec.interimResults = true;
-      let finalText = '', interim = '';
+      rec.lang=(navigator.language||'en-US'); rec.continuous=false; rec.interimResults=true;
+      let finalText='', interim='';
       micBtn.addEventListener('click', function(){
         if (!window.isSecureContext) { alert('Voice input requires HTTPS.'); return; }
         try{ setStatus('Listening…'); finalText=''; interim=''; rec.start(); }catch(e){ setStatus(''); }
       });
       rec.onresult = function(ev){
         for(let i=ev.resultIndex;i<ev.results.length;i++){
-          const r = ev.results[i], t=r[0].transcript;
+          const r=ev.results[i], t=r[0].transcript;
           if(r.isFinal) finalText += ' ' + t; else interim = t;
         }
-        if (input) input.value = dedupe((finalText + ' ' + interim).trim());
+        if(input) input.value = dedupe((finalText + ' ' + interim).trim());
       };
       rec.onerror = function(){ setStatus('Mic error'); };
-      rec.onend = function(){ setStatus(''); };
+      rec.onend   = function(){ setStatus(''); };
     }catch(e){}
   } else if (micBtn && !SR){
     micBtn.addEventListener('click', function(){ alert('Voice input not supported in this browser.'); });
   }
 
-  // Live mic (continuous)
-  let recog = null;
-  window.__liveActive = false;
-
-  function startLive(){
+  // Live mic (continuous) with echo protection
+  function startLive(resume){
     if(!SR){ setStatus('speech API not supported'); return; }
     if (!window.isSecureContext) { alert('Live voice requires HTTPS.'); return; }
     window.__liveActive = true;
     if(recog){ try{recog.stop();}catch(e){} recog=null; }
+
     recog = new SR();
     recog.continuous = true; recog.interimResults = true;
     recog.lang = (navigator.language||'en-US');
-    let finalText = '', interim = '';
+    let finalText='', interim='';
+
     recog.onstart = function(){ setStatus('listening…'); };
     recog.onerror = function(){ setStatus('error'); };
     recog.onend   = function(){
-      setStatus(window.__liveActive ? 'restarting…' : 'idle');
-      if(window.__liveActive){ try{recog.start();}catch(e){} }
+      if(window.__liveActive && !window.__asrPausedByTTS){
+        try{ recog.start(); }catch(e){}
+      }else{
+        setStatus('idle');
+      }
     };
     recog.onresult = function(ev){
-      if(window.speechSynthesis && window.speechSynthesis.speaking) return;
+      if(window.__asrPausedByTTS) return; // hard gate
       for(let i=ev.resultIndex;i<ev.results.length;i++){
-        const r = ev.results[i], t=r[0].transcript;
+        const r=ev.results[i], t=r[0].transcript;
         if(r.isFinal) finalText += ' ' + t; else interim = t;
       }
-      input.value = dedupe((finalText + ' ' + interim).trim());
+      if(input) input.value = dedupe((finalText + ' ' + interim).trim());
       const last = ev.results[ev.results.length-1];
       if(last && last.isFinal){
         const out = dedupe(finalText).trim();
-        if(out){
-          try{recog.stop();}catch(e){}
-          input.value = out; finalText=''; interim='';
-          sendAjax(out);
+        finalText=''; interim='';
+        if(!out) return;
+
+        // Echo filter: skip if looks like our own last reply
+        if (looksLikeEcho(out, window.__lastAssistantText)) {
+          if(input) input.value = '';
+          return;
         }
+
+        try{ recog.stop(); }catch(e){}
+        if(input) input.value = out;
+        sendAjax(out);
       }
     };
     try{ recog.start(); }catch(e){}
   }
   function stopLive(){ window.__liveActive=false; if(recog){ try{recog.stop();}catch(e){} } setStatus('stopped'); }
-  window.startLive = startLive; window.stopLive = stopLive;
-  if (liveBtn) liveBtn.addEventListener('click', startLive);
+
+  if (liveBtn) liveBtn.addEventListener('click', function(){ startLive(); });
   if (stopBtn) stopBtn.addEventListener('click', stopLive);
 
 })();</script>
@@ -729,11 +775,7 @@ class AIAssistantLiveController(http.Controller):
 
     @http.route(['/ai_assistant/api/send'], type='json', auth='user', methods=['POST'], csrf=False)
     def api_send(self, **post):
-        """
-        Accept JSON-RPC and plain JSON:
-        - JSON-RPC: {"jsonrpc":"2.0","method":"call","params":{"message":"..."}}
-        - Plain:    {"message":"..."}
-        """
+        """Accept JSON-RPC and plain JSON bodies."""
         payload = {}
         try:
             payload = request.jsonrequest or {}
