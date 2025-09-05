@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <data noupdate="1">
+    <record id="action_ai_assistant" model="ir.actions.act_url">
+      <field name="name">GPT-5 Assistant</field>
+      <field name="url">/ai_assistant</field>
+      <field name="target">self</field>
+    </record>
+    <menuitem id="menu_ai_assistant_root" name="GPT-5 Assistant" sequence="10"/>
+    <menuitem id="menu_ai_assistant_chat" name="Chat" parent="menu_ai_assistant_root"
+              action="action_ai_assistant" sequence="1" groups="base.group_user"/>
+    <record id="action_ai_assistant_settings" model="ir.actions.act_url">
+      <field name="name">Settings</field>
+      <field name="url">/ai_assistant/settings</field>
+      <field name="target">self</field>
+    </record>
+    <menuitem id="menu_ai_assistant_settings" name="Settings" parent="menu_ai_assistant_root"
+              action="action_ai_assistant_settings" sequence="2" groups="base.group_system"/>
+    <record id="action_ai_assistant_diag" model="ir.actions.act_url">
+      <field name="name">Diagnostics</field>
+      <field name="url">/ai_assistant/diag</field>
+      <field name="target">self</field>
+    </record>
+    <menuitem id="menu_ai_assistant_diag" name="Diagnostics" parent="menu_ai_assistant_root"
+              action="action_ai_assistant_diag" sequence="3" groups="base.group_user"/>
+  </data>
+</odoo>
