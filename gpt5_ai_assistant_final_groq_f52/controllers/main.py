@@ -364,21 +364,22 @@ def _ai_reply(user_text):
         return content
 
 def _html_page(body, title="GPT-5 Assistant"):
+    # Use plain token replacement to avoid formatting collisions with % or { } in JS/CSS.
     tpl = """<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>%(title)s</title>
+<title>__TITLE__</title>
 </head>
 <body>
 <div style="max-width:900px;margin:24px auto;padding:8px;">
-<h2>%(title)s</h2>
-%(body)s
+<h2>__TITLE__</h2>
+__BODY__
 <hr/>
 <p><a href="/ai_assistant">Chat</a> • <a href="/ai_assistant/settings">Settings</a> • <a href="/ai_assistant/clear">New chat</a> • <a href="/ai_assistant/diag">Diagnostics</a> • <a href="/ai_assistant/export">Export</a></p>
 </div>
 <script>(function(){
-  // Voice helpers
+  // ---- Voice helpers ----
   function detectLang(s){
     if(!s) return (navigator.language||'en').slice(0,2);
     if(/[\\u0600-\\u06FF]/.test(s)) return 'ar';
@@ -390,18 +391,18 @@ def _html_page(body, title="GPT-5 Assistant"):
     return 'en';
   }
   function pickVoice(lang2){
-    try {
+    try{
       const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
       const pref = {ar:'ar',zh:'zh',hi:'hi',ja:'ja',ko:'ko',ru:'ru',en:'en'};
       const tgt = pref[lang2] || 'en';
       let v = null;
-      for (const vv of voices) {
+      for (const vv of voices){
         const l=(vv.lang||'').toLowerCase(), n=(vv.name||'').toLowerCase();
         if(l.startsWith(tgt) || (tgt==='ar' && n.includes('arab'))) { v = vv; break; }
         if(!v && (l.includes(tgt)||n.includes(tgt))) v = vv;
       }
       return v || voices[0] || null;
-    } catch(e) { return null; }
+    }catch(e){ return null; }
   }
   function waitVoices(){
     return new Promise(function(resolve){
@@ -411,7 +412,7 @@ def _html_page(body, title="GPT-5 Assistant"):
       const t = setInterval(function(){
         const vv = window.speechSynthesis.getVoices();
         if (vv && vv.length){ clearInterval(t); resolve(); }
-      }, 100);
+      }, 120);
       setTimeout(function(){ try{clearInterval(t);}catch(e){} resolve(); }, 1500);
     });
   }
@@ -432,7 +433,7 @@ def _html_page(body, title="GPT-5 Assistant"):
   }
   window.speak = speak;
 
-  // Chat wiring
+  // ---- Chat wiring (works on the /ai_assistant page) ----
   const micBtn  = document.getElementById('mic');
   const liveBtn = document.getElementById('live');
   const stopBtn = document.getElementById('stop');
@@ -444,6 +445,7 @@ def _html_page(body, title="GPT-5 Assistant"):
 
   function setStatus(t){ if(vstatus) vstatus.textContent = t; }
   function append(who, txt){
+    if(!logEl) return;
     const div = document.createElement('div');
     div.innerHTML = '<b>'+who+':</b><pre style="white-space:pre-wrap"></pre>';
     div.querySelector('pre').textContent = txt || '';
@@ -458,7 +460,6 @@ def _html_page(body, title="GPT-5 Assistant"):
     }
     return s;
   }
-
   async function sendAjax(text){
     append('You', text);
     try{
@@ -522,7 +523,7 @@ def _html_page(body, title="GPT-5 Assistant"):
     micBtn.addEventListener('click', function(){ alert('Voice input not supported in this browser.'); });
   }
 
-  // Live mic
+  // Live mic (continuous)
   let recog = null;
   window.__liveActive = false;
 
@@ -567,7 +568,7 @@ def _html_page(body, title="GPT-5 Assistant"):
 
 })();</script>
 </body></html>"""
-    return tpl % {"title": _html.escape(title), "body": body}
+    return tpl.replace("__TITLE__", _html.escape(title)).replace("__BODY__", body)
 
 class AIAssistantController(http.Controller):
 
@@ -738,13 +739,10 @@ class AIAssistantLiveController(http.Controller):
             payload = request.jsonrequest or {}
         except Exception:
             payload = {}
-        # Unwrap JSON-RPC
         if isinstance(payload, dict) and 'params' in payload and isinstance(payload['params'], dict):
             payload = payload['params']
-        # Merge kwargs if Odoo passed them
         if isinstance(post, dict) and post:
             payload = {**payload, **post}
-        # Last-resort raw body decode (for proxies)
         if not payload:
             try:
                 raw = (request.httprequest.data or b'').decode('utf-8', 'ignore')
@@ -758,7 +756,6 @@ class AIAssistantLiveController(http.Controller):
         msg = (payload.get('message') or '').strip()
         if not msg:
             return {'ok': False, 'error': 'empty'}
-
         try:
             reply = _ai_reply(msg)
             return {'ok': True, 'reply': reply}
