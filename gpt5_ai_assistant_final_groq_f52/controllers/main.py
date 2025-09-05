@@ -364,7 +364,6 @@ def _ai_reply(user_text):
         return content
 
 def _html_page(body, title="GPT-5 Assistant"):
-    # token replace (avoids % conflicts)
     tpl = """<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"/>
@@ -379,7 +378,6 @@ __BODY__
 <p><a href="/ai_assistant">Chat</a> • <a href="/ai_assistant/settings">Settings</a> • <a href="/ai_assistant/clear">New chat</a> • <a href="/ai_assistant/diag">Diagnostics</a> • <a href="/ai_assistant/export">Export</a></p>
 </div>
 <script>(function(){
-  // ===== Voice/TTS/ASR with Arabic support & echo protection =====
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const micBtn  = document.getElementById('mic');
   const liveBtn = document.getElementById('live');
@@ -388,7 +386,10 @@ __BODY__
   const input   = document.getElementById('msg');
   const logEl   = document.getElementById('log');
   const formEl  = document.getElementById('ai_form');
-  const langSel = document.getElementById('sr_lang'); // new language selector
+  const langSel = document.getElementById('sr_lang');   // ASR language
+  const ttsSel  = document.getElementById('tts_voice'); // TTS voice
+  const ttsTest = document.getElementById('tts_test');  // Test button
+  const ttsInfo = document.getElementById('tts_info');  // Status
 
   function setStatus(t){ if(vstatus) vstatus.textContent = t; }
   function append(who, txt){
@@ -404,74 +405,74 @@ __BODY__
     if(isArabicText(s)) return 'ar';
     return (navigator.language||'en').slice(0,2);
   }
-  function pickVoice(lang2){
-    try{
-      const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
-      const pref = {ar:'ar',zh:'zh',hi:'hi',ja:'ja',ko:'ko',ru:'ru',en:'en'};
-      const tgt = pref[lang2] || 'en';
-      let v = null;
-      for (const vv of voices){
-        const l=(vv.lang||'').toLowerCase(), n=(vv.name||'').toLowerCase();
-        if(l.startsWith(tgt) || (tgt==='ar' && n.includes('arab'))){ v = vv; break; }
-        if(!v && (l.includes(tgt)||n.includes(tgt))) v = vv;
-      }
-      return v || voices[0] || null;
-    }catch(e){ return null; }
-  }
+
   function waitVoices(){
     return new Promise(function(resolve){
       if(!window.speechSynthesis){ resolve(); return; }
-      const now = window.speechSynthesis.getVoices();
-      if (now && now.length){ resolve(); return; }
-      const t = setInterval(function(){
-        const vv = window.speechSynthesis.getVoices();
-        if (vv && vv.length){ clearInterval(t); resolve(); }
-      }, 120);
-      setTimeout(function(){ try{clearInterval(t);}catch(e){} resolve(); }, 1500);
+      let tries = 0;
+      const poll = setInterval(function(){
+        const v = speechSynthesis.getVoices();
+        tries++;
+        if (v && v.length){ clearInterval(poll); resolve(); }
+        if (tries>20){ clearInterval(poll); resolve(); }
+      }, 100);
+      // nudge
+      try{ speechSynthesis.getVoices(); }catch(e){}
     });
   }
-  function norm(s){
-    return (s||'').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\\s+/g,' ').trim();
-  }
-  function looksLikeEcho(candidate, lastAssistant){
-    const a = norm(candidate), b = norm(lastAssistant);
-    if(!a || !b) return false;
-    if(a === b) return true;
-    if(a.length >= 12 && (b.includes(a) || a.includes(b))) return true;
-    const A = new Set(a.split(' ')), B = new Set(b.split(' '));
-    let inter = 0; A.forEach(w=>{ if(B.has(w)) inter++; });
-    const ratio = inter / Math.max(1, Math.min(A.size, B.size));
-    return (ratio >= 0.8 && Math.min(a.length,b.length) >= 12);
+
+  function populateVoices(){
+    if (!window.speechSynthesis || !ttsSel) return;
+    const voices = speechSynthesis.getVoices()||[];
+    ttsSel.innerHTML = '<option value="">(Auto)</option>';
+    voices.forEach((v,i)=>{
+      const label = (v.name||'') + ' — ' + (v.lang||'');
+      const opt = document.createElement('option');
+      opt.value = 'idx:'+i;
+      opt.textContent = label;
+      ttsSel.appendChild(opt);
+    });
+    if(ttsInfo){ ttsInfo.textContent = voices.length ? ('voices: '+voices.length) : 'voices: 0'; }
   }
 
-  // ---- Language picker (Auto / Arabic / English) ----
-  function chosenLangCode(){
-    const v = langSel ? (langSel.value||'auto') : 'auto';
-    if (v === 'ar') return 'ar-SA';
-    if (v === 'en') return 'en-US';
-    // auto -> use browser default
-    const nav = (navigator.language||'en-US');
-    return nav || 'en-US';
+  function pickVoiceAutoByText(text){
+    try{
+      const voices = speechSynthesis.getVoices()||[];
+      const want = isArabicText(text||'') ? 'ar' : (detectLang(text||'')||'en').slice(0,2);
+      let best = null;
+      for(const v of voices){
+        const l=(v.lang||'').toLowerCase(), n=(v.name||'').toLowerCase();
+        if(l.startsWith(want) || (want==='ar' && n.includes('arab'))){ best=v; break; }
+        if(!best && (l.includes(want)||n.includes(want))) best=v;
+      }
+      return best || voices[0] || null;
+    }catch(e){ return null; }
   }
 
-  let recog = null;
   window.__liveActive = false;
   window.__asrPausedByTTS = false;
   window.__lastAssistantText = '';
 
   async function speak(text){
     if(!window.speechSynthesis) return null;
-    try{ window.speechSynthesis.cancel(); }catch(e){}
+    try{ speechSynthesis.cancel(); }catch(e){}
     await waitVoices();
 
     window.__asrPausedByTTS = true;
-    if(recog){ try{recog.stop();}catch(e){} }
+    try{ if(window.recog){ window.recog.stop(); } }catch(e){}
 
-    const lang2 = isArabicText(text||'') ? 'ar' : detectLang(text||'');
     const u = new SpeechSynthesisUtterance(text||'');
-    const v = pickVoice(lang2);
-    if(v){ u.voice=v; u.lang=v.lang; } else { u.lang = (lang2==='ar'?'ar-SA':'en-US'); }
-    u.rate = 1.0; u.pitch = 1.0;
+    // preferred voice if selected
+    let v = null;
+    if (ttsSel && ttsSel.value && ttsSel.value.startsWith('idx:')){
+      const idx = parseInt(ttsSel.value.slice(4), 10);
+      const list = speechSynthesis.getVoices()||[];
+      v = list[idx] || null;
+    }
+    if (!v){ v = pickVoiceAutoByText(text||''); }
+    if (v){ u.voice = v; u.lang = v.lang; }
+    else { u.lang = isArabicText(text||'') ? 'ar-SA' : 'en-US'; }
+    u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
 
     u.onend = function(){
       window.__asrPausedByTTS = false;
@@ -479,7 +480,7 @@ __BODY__
         setTimeout(function(){ try{ startLive(true); }catch(e){} }, 250);
       }
     };
-    window.speechSynthesis.speak(u);
+    speechSynthesis.speak(u);
     return u;
   }
   window.speak = speak;
@@ -496,14 +497,11 @@ __BODY__
       const data = (raw && typeof raw==='object' && 'result' in raw) ? raw.result : raw;
 
       let replyText = '(no reply)';
-      if (data && typeof data.reply === 'string') {
-        replyText = data.reply;
-      } else if (data && data.error) {
-        replyText = '⚠ ' + data.error;
-      }
-      append('Assistant', replyText);
+      if (data && typeof data.reply === 'string') replyText = data.reply;
+      else if (data && data.error) replyText = '⚠ ' + data.error;
 
-      if (data && data.reply) {
+      append('Assistant', replyText);
+      if (data && data.reply){
         window.__lastAssistantText = data.reply;
         await speak(data.reply);
       }
@@ -532,16 +530,19 @@ __BODY__
     return s;
   }
 
-  // Quick mic (single shot) — respects language selector
+  // Quick mic (single shot)
   if (micBtn && SR){
     try{
       const rec = new SR();
-      rec.lang = chosenLangCode();
-      rec.continuous=false; rec.interimResults=true;
+      rec.lang = (navigator.language||'en-US'); rec.continuous=false; rec.interimResults=true;
       let finalText='', interim='';
       micBtn.addEventListener('click', function(){
         if (!window.isSecureContext) { alert('Voice input requires HTTPS.'); return; }
-        try{ setStatus('Listening…'); finalText=''; interim=''; rec.lang = chosenLangCode(); rec.start(); }catch(e){ setStatus(''); }
+        try{
+          setStatus('Listening…'); finalText=''; interim='';
+          rec.lang = (langSel?.value==='ar' ? 'ar-SA' : langSel?.value==='en' ? 'en-US' : (navigator.language||'en-US'));
+          rec.start();
+        }catch(e){ setStatus(''); }
       });
       rec.onresult = function(ev){
         for(let i=ev.resultIndex;i<ev.results.length;i++){
@@ -557,64 +558,75 @@ __BODY__
     micBtn.addEventListener('click', function(){ alert('Voice input not supported in this browser.'); });
   }
 
-  // Live mic (continuous) — respects selector + auto-switch to Arabic
+  // Live mic (continuous)
   function startLive(resume){
     if(!SR){ setStatus('speech API not supported'); return; }
     if (!window.isSecureContext) { alert('Live voice requires HTTPS.'); return; }
     window.__liveActive = true;
-    if(recog){ try{recog.stop();}catch(e){} recog=null; }
+    if(window.recog){ try{window.recog.stop();}catch(e){} window.recog=null; }
 
-    recog = new SR();
-    recog.continuous = true; recog.interimResults = true;
-    recog.lang = chosenLangCode(); // initial language from picker
+    const rec = new SR(); window.recog = rec;
+    rec.continuous = true; rec.interimResults = true;
+    rec.lang = (langSel?.value==='ar' ? 'ar-SA' : langSel?.value==='en' ? 'en-US' : (navigator.language||'en-US'));
     let finalText='', interim='';
 
-    recog.onstart = function(){ setStatus('listening…'); };
-    recog.onerror = function(){ setStatus('error'); };
-    recog.onend   = function(){
+    rec.onstart = function(){ setStatus('listening…'); };
+    rec.onerror = function(){ setStatus('error'); };
+    rec.onend   = function(){
       if(window.__liveActive && !window.__asrPausedByTTS){
-        try{ recog.start(); }catch(e){}
-      }else{
-        setStatus('idle');
-      }
+        try{ rec.start(); }catch(e){}
+      }else{ setStatus('idle'); }
     };
-    recog.onresult = function(ev){
+    rec.onresult = function(ev){
       if(window.__asrPausedByTTS) return;
       for(let i=ev.resultIndex;i<ev.results.length;i++){
         const r=ev.results[i], t=r[0].transcript;
         if(r.isFinal) finalText += ' ' + t; else interim = t;
       }
-
-      // If user chose Auto and we detect Arabic letters, switch recog.lang to ar-SA
-      if ((langSel && langSel.value === 'auto') && isArabicText(finalText+interim) && recog.lang !== 'ar-SA') {
-        try{ recog.stop(); }catch(e){}
-        recog.lang = 'ar-SA';
-        try{ recog.start(); }catch(e){}
-        return; // let it resume with new lang
+      if ((langSel?.value==='auto') && /[\\u0600-\\u06FF]/.test(finalText+interim) && rec.lang!=='ar-SA'){
+        try{ rec.stop(); }catch(e){}
+        rec.lang = 'ar-SA';
+        try{ rec.start(); }catch(e){}
+        return;
       }
-
       if(input) input.value = dedupe((finalText + ' ' + interim).trim());
       const last = ev.results[ev.results.length-1];
       if(last && last.isFinal){
         const out = dedupe(finalText).trim();
         finalText=''; interim='';
         if(!out) return;
-        if (looksLikeEcho(out, window.__lastAssistantText)) {
-          if(input) input.value = '';
-          return;
+        // echo shield
+        const a = (out||'').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\\s+/g,' ').trim();
+        const b = (window.__lastAssistantText||'').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\\s+/g,' ').trim();
+        if(a && b && (a===b || (a.length>=12 && (b.includes(a)||a.includes(b))))){
+          if(input) input.value=''; return;
         }
-        try{ recog.stop(); }catch(e){}
+        try{ rec.stop(); }catch(e){}
         if(input) input.value = out;
         sendAjax(out);
       }
     };
-    try{ recog.start(); }catch(e){}
+    try{ rec.start(); }catch(e){}
   }
-  function stopLive(){ window.__liveActive=false; if(recog){ try{recog.stop();}catch(e){} } setStatus('stopped'); }
+  function stopLive(){ window.__liveActive=false; if(window.recog){ try{window.recog.stop();}catch(e){} } setStatus('stopped'); }
 
   if (liveBtn) liveBtn.addEventListener('click', function(){ startLive(); });
   if (stopBtn) stopBtn.addEventListener('click', stopLive);
 
+  // ==== TTS Init ====
+  if ('speechSynthesis' in window){
+    speechSynthesis.onvoiceschanged = function(){ populateVoices(); };
+    waitVoices().then(populateVoices);
+    if (ttsTest){
+      ttsTest.addEventListener('click', async function(){
+        // User gesture -> guarantees audio allowed
+        const sample = (langSel && langSel.value==='ar') ? 'اختبار الصوت يعمل الآن.' : 'Voice test. Can you hear me?';
+        await speak(sample);
+      });
+    }
+  }else{
+    if (ttsInfo) ttsInfo.textContent = 'speechSynthesis not supported';
+  }
 })();</script>
 </body></html>"""
     return tpl.replace("__TITLE__", _html.escape(title)).replace("__BODY__", body)
@@ -655,7 +667,7 @@ class AIAssistantController(http.Controller):
             return f"<div><b>{who}:</b><pre style='white-space:pre-wrap'>{content}</pre></div>"
 
         chat_html = "".join(render_msg(m) for m in history)
-        # Added language drop-down (Auto / Arabic / English)
+
         form = """
         <form id="ai_form" method="post" action="/ai_assistant">
             <label>Message</label><br/>
@@ -665,13 +677,19 @@ class AIAssistantController(http.Controller):
             <button type="button" id="live" title="Live voice chat (continuous)">🎙 Live</button>
             <button type="button" id="stop" title="Stop listening">⏹ Stop</button>
             <span id="vstatus" style="font-size:90%%;margin-left:8px;">idle</span>
-            <span style="margin-left:12px;font-size:90%%">Voice input language:
+            <div style="margin-top:8px;font-size:90%%">
+              <b>Voice input language:</b>
               <select id="sr_lang">
                 <option value="auto" selected>Auto</option>
                 <option value="ar">Arabic (ar-SA)</option>
                 <option value="en">English (en-US)</option>
               </select>
-            </span>
+              &nbsp;&nbsp;|&nbsp;&nbsp;
+              <b>Voice output:</b>
+              <select id="tts_voice"></select>
+              <button type="button" id="tts_test">Test Voice</button>
+              <span id="tts_info" style="margin-left:8px;color:#555"></span>
+            </div>
         </form>
         """
         body = f"""
@@ -786,7 +804,6 @@ class AIAssistantLiveController(http.Controller):
 
     @http.route(['/ai_assistant/api/send'], type='json', auth='user', methods=['POST'], csrf=False)
     def api_send(self, **post):
-        """Accept JSON-RPC and plain JSON bodies."""
         payload = {}
         try:
             payload = request.jsonrequest or {}
@@ -805,7 +822,6 @@ class AIAssistantLiveController(http.Controller):
                         payload = maybe.get('params', maybe)
             except Exception:
                 pass
-
         msg = (payload.get('message') or '').strip()
         if not msg:
             return {'ok': False, 'error': 'empty'}
