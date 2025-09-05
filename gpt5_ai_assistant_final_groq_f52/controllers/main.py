@@ -364,16 +364,17 @@ def _ai_reply(user_text):
         return content
 
 def _html_page(body, title="GPT-5 Assistant"):
+    # Use % formatting to avoid crashing on JS braces.
     tpl = """<!doctype html>
-<html><head><meta charset="utf-8"/><title>{title}</title></head>
+<html><head><meta charset="utf-8"/><title>%(title)s</title></head>
 <body>
 <div style="max-width:900px;margin:24px auto;padding:8px;">
-<h2>{title}</h2>
-{body}
+<h2>%(title)s</h2>
+%(body)s
 <hr/>
 <p><a href="/ai_assistant">Chat</a> • <a href="/ai_assistant/settings">Settings</a> • <a href="/ai_assistant/clear">New chat</a> • <a href="/ai_assistant/diag">Diagnostics</a> • <a href="/ai_assistant/export">Export</a></p>
 </div>
-<script>(function(){{
+<script>(function(){
   const micBtn = document.getElementById('mic');
   const input = document.getElementById('msg');
   const liveBtn = document.getElementById('live');
@@ -381,123 +382,119 @@ def _html_page(body, title="GPT-5 Assistant"):
   const vstatus = document.getElementById('vstatus');
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  function setStatus(t){{ if(vstatus) vstatus.textContent = t; }}
-  function detectLang(s){{
+  function setStatus(t){ if(vstatus) vstatus.textContent = t; }
+  function detectLang(s){
     if(!s) return (navigator.language||'en').slice(0,2);
-    if(/[\u0600-\u06FF]/.test(s)) return 'ar';
-    if(/[\u0400-\u04FF]/.test(s)) return 'ru';
-    if(/[\u4E00-\u9FFF]/.test(s)) return 'zh';
-    if(/[\u0900-\u097F]/.test(s)) return 'hi';
-    if(/[\u3040-\u30FF]/.test(s)) return 'ja';
-    if(/[\uAC00-\uD7AF]/.test(s)) return 'ko';
+    if(/[\\u0600-\\u06FF]/.test(s)) return 'ar';
+    if(/[\\u0400-\\u04FF]/.test(s)) return 'ru';
+    if(/[\\u4E00-\\u9FFF]/.test(s)) return 'zh';
+    if(/[\\u0900-\\u097F]/.test(s)) return 'hi';
+    if(/[\\u3040-\\u30FF]/.test(s)) return 'ja';
+    if(/[\\uAC00-\\uD7AF]/.test(s)) return 'ko';
     return 'en';
-  }}
-  function pickVoice(lang2){{
-    try {{
+  }
+  function pickVoice(lang2){
+    try {
       const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
-      const pref = {{ar:'ar',zh:'zh',hi:'hi',ja:'ja',ko:'ko',ru:'ru',en:'en'}};
+      const pref = {ar:'ar',zh:'zh',hi:'hi',ja:'ja',ko:'ko',ru:'ru',en:'en'};
       const tgt = pref[lang2] || 'en';
       let v = null;
-      for (const vv of voices) {{
+      for (const vv of voices) {
         const l=(vv.lang||'').toLowerCase(), n=(vv.name||'').toLowerCase();
-        if(l.startsWith(tgt) || (tgt==='ar' && n.includes('arab'))) {{ v = vv; break; }}
+        if(l.startsWith(tgt) || (tgt==='ar' && n.includes('arab'))) { v = vv; break; }
         if(!v && (l.includes(tgt)||n.includes(tgt))) v = vv;
-      }}
+      }
       return v || voices[0] || null;
-    }} catch(e) {{ return null; }}
-  }}
-  let voicesReady = false;
-  if (window.speechSynthesis) {{
-    window.speechSynthesis.onvoiceschanged = function(){{ voicesReady = true; }};
-    // poke voices
-    window.speechSynthesis.getVoices(); setTimeout(()=>{{voicesReady=true;}},300);
-  }}
-  function speak(text){{
+    } catch(e) { return null; }
+  }
+  function speak(text){
     if(!window.speechSynthesis) return null;
-    try{{ window.speechSynthesis.cancel(); }}catch(e){{}}
+    try{ window.speechSynthesis.cancel(); }catch(e){}
     const lang2 = detectLang(text||'');
     const u = new SpeechSynthesisUtterance(text||'');
     const v = pickVoice(lang2);
-    if(v) {{ u.voice = v; u.lang = v.lang; }}
-    else {{ u.lang = (lang2==='ar'?'ar-SA':'en-US'); }}
+    if(v){ u.voice=v; u.lang=v.lang; } else { u.lang = (lang2==='ar'?'ar-SA':'en-US'); }
     u.rate = 1.0; u.pitch = 1.0;
     window.speechSynthesis.speak(u);
     return u;
-  }}
-  function dedupe(s){{
+  }
+  // expose for other inline snippets
+  window.speak = speak;
+
+  // De-duplicate repeated words and halves
+  function dedupe(s){
     s = (s||'').replace(/\\s+/g,' ').trim();
-    s = s.replace(/\\b(\\w+)(\\s+\\1\\b)+/gi, '$1'); // repeated words
-    if(s.length>4 && s.length%2===0){{
+    s = s.replace(/\\b(\\w+)(\\s+\\1\\b)+/gi, '$1');
+    if(s.length>4 && s.length%%2===0){
       const h=s.slice(0,s.length/2);
       if((h+h).toLowerCase()===s.toLowerCase()) s=h;
-    }}
+    }
     return s;
-  }}
+  }
 
   // Quick mic (single utterance)
-  if (micBtn && SR) {{
-    try {{
+  if (micBtn && SR) {
+    try {
       const rec = new SR();
       rec.lang = (navigator.language||'en-US'); rec.continuous = false; rec.interimResults = true;
       let finalText = '', interim = '';
-      micBtn.addEventListener('click', function(){{
-        try{{ setStatus('Listening…'); finalText=''; interim=''; rec.start(); }}catch(e){{ setStatus(''); }}
-      }});
-      rec.onresult = function(ev){{
-        for(let i=ev.resultIndex;i<ev.results.length;i++) {{
+      micBtn.addEventListener('click', function(){
+        try{ setStatus('Listening…'); finalText=''; interim=''; rec.start(); }catch(e){ setStatus(''); }
+      });
+      rec.onresult = function(ev){
+        for(let i=ev.resultIndex;i<ev.results.length;i++) {
           const r = ev.results[i]; const t = r[0].transcript;
-          if(r.isFinal) finalText += ' ' + t;
-          else interim = t;
-        }}
+          if(r.isFinal) finalText += ' ' + t; else interim = t;
+        }
         if (input) input.value = dedupe((finalText + ' ' + interim).trim());
-      }};
-      rec.onerror = function(){{ setStatus('Mic error'); }};
-      rec.onend = function(){{ setStatus(''); }};
-    }} catch(e) {{ }}
-  }} else if (micBtn && !SR) {{
-    micBtn.addEventListener('click', function(){{ alert('Voice input not supported in this browser.'); }});
-  }}
+      };
+      rec.onerror = function(){ setStatus('Mic error'); };
+      rec.onend = function(){ setStatus(''); };
+    } catch(e) {}
+  } else if (micBtn && !SR) {
+    micBtn.addEventListener('click', function(){ alert('Voice input not supported in this browser.'); });
+  }
 
-  // Live page buttons exist only there, but keeping hooks harmless here
+  // Live hooks (harmless on this page)
   let recog = null;
-  function autoSend(){{
-    try {{
+  function autoSend(){
+    try{
       var form = document.querySelector('form[action="/ai_assistant"]');
       if(!form) return;
       var fd = new FormData(form);
-      fetch('/ai_assistant', {{ method:'POST', body:fd }}).then(function(){{ location.reload(); }});
-    }} catch(e) {{}}
-  }}
-  window.startLive = function(){{
-    const SR2 = SR; if(!SR2){{ alert('Your browser does not support voice input.'); return; }}
-    try{{ window.speechSynthesis && window.speechSynthesis.cancel(); }}catch(e){{}}
-    try {{
-      if(recog){{ try{{recog.stop();}}catch(e){{}} recog=null; }}
+      fetch('/ai_assistant', { method:'POST', body:fd }).then(function(){ location.reload(); });
+    }catch(e){}
+  }
+  window.startLive = function(){
+    const SR2 = SR; if(!SR2){ alert('Your browser does not support voice input.'); return; }
+    try{ window.speechSynthesis && window.speechSynthesis.cancel(); }catch(e){}
+    try{
+      if(recog){ try{recog.stop();}catch(e){} recog=null; }
       recog = new SR2(); recog.lang=(navigator.language||'en-US'); recog.continuous=true; recog.interimResults=true;
       let finalText = '', interim = '';
-      recog.onresult = function(ev){{
-        for(let i=ev.resultIndex;i<ev.results.length;i++) {{
+      recog.onresult = function(ev){
+        for(let i=ev.resultIndex;i<ev.results.length;i++){
           const r = ev.results[i]; const t = r[0].transcript;
           if(r.isFinal) finalText += ' ' + t; else interim = t;
-        }}
+        }
         if(input) input.value = dedupe((finalText + ' ' + interim).trim());
         const last = ev.results[ev.results.length-1];
-        if(last && last.isFinal){{
+        if(last && last.isFinal){
           const out = dedupe(finalText).trim();
-          if(out){{ if(input) input.value = out; autoSend(); }}
+          if(out){ if(input) input.value = out; autoSend(); }
           finalText=''; interim='';
-        }}
-      }};
+        }
+      };
       recog.start();
-    }} catch(e) {{ setStatus('Mic blocked'); }}
-  }};
-  window.stopLive = function(){{ try{{ recog && recog.stop(); }}catch(e){{}} setStatus(''); }};
+    }catch(e){ setStatus('Mic blocked'); }
+  };
+  window.stopLive = function(){ try{ recog && recog.stop(); }catch(e){} setStatus(''); };
 
   if (liveBtn) liveBtn.addEventListener('click', function(){ window.startLive(); });
   if (stopBtn) stopBtn.addEventListener('click', function(){ window.stopLive(); });
-}})();</script>
+})();</script>
 </body></html>"""
-    return tpl.format(title=_html.escape(title), body=body)
+    return tpl % {"title": _html.escape(title), "body": body}
 
 class AIAssistantController(http.Controller):
 
@@ -545,12 +542,12 @@ class AIAssistantController(http.Controller):
             <button type="button" id="mic" title="Voice input (browser)">🎤</button>
             <button type="button" id="live" title="Live voice chat (continuous)">🎙 Live</button>
             <button type="button" id="stop" title="Stop listening">⏹ Stop</button>
-            <span id="vstatus" style="font-size:90%"></span>
+            <span id="vstatus" style="font-size:90%%"></span>
         </form>
         """
         if answer:
-            # speak the new answer once
-            form += f"<script>try{{ if(window.speechSynthesis){{ speechSynthesis.cancel(); }} var u=(function(txt){{ var speak=window.speak||function(t){{var u=new SpeechSynthesisUtterance(t); try{{speechSynthesis.speak(u);}}catch(e){{}} return u;}}; return speak({json.dumps(answer)}); }} )({json.dumps(answer)}); }}catch(e){{}};</script>"
+            # Speak the new answer once, using the global speak() from the wrapper.
+            form += f"<script>try{{ if(window.speechSynthesis){{ speechSynthesis.cancel(); }} var u = window.speak && window.speak({json.dumps(answer)}); }}catch(e){{}};</script>"
 
         body = f"""
         <p style="font-size:90%%">⚠️ Never paste API keys here. Configure them in <a href="/ai_assistant/settings">Settings</a>.</p>
@@ -665,7 +662,7 @@ class AIAssistantLiveController(http.Controller):
 
     @http.route(['/ai_assistant/api/send'], type='json', auth='user', methods=['POST'], csrf=False)
     def api_send(self, **post):
-        # Support both JSON-RPC wrapper and plain JSON; Odoo will wrap dict into {"result": ...}
+        # Support both JSON-RPC wrapper and plain JSON; Odoo may wrap dicts under {"result": ...}
         try:
             payload = request.jsonrequest or {}
         except Exception:
