@@ -1,124 +1,203 @@
 # -*- coding: utf-8 -*-
+import json
+import re
+import requests
 from odoo import http
 from odoo.http import request
 
-class AiAssistantLiveVoiceController(http.Controller):
-    """
-    Drop-in replacement for controllers/live_voice.py
-    - Avoids f-strings in HTML template (prevents SyntaxError on some builds)
-    - Better error reporting to the browser
-    - Safer Groq/OpenAI-compatible call with robust parsing
-    - Live mic loop-guard to stop self-echo
-    """
-    @staticmethod
-    def _get_cfg():
-        ICP = request.env['ir.config_parameter'].sudo()
-        base_url = ICP.get_param('ai_assistant.base_url', default='https://api.groq.com/openai/v1') or 'https://api.groq.com/openai/v1'
-        api_key = ICP.get_param('ai_assistant.api_key', default='') or ''
-        model = ICP.get_param('ai_assistant.model', default='llama-3.1-8b-instant') or 'llama-3.1-8b-instant'
-        system = ICP.get_param('ai_assistant.system', default='You are a helpful Odoo assistant. Keep replies concise.') or 'You are a helpful Odoo assistant. Keep replies concise.'
-        return {'base_url': base_url, 'api_key': api_key, 'model': model, 'system': system}
+def _get_param(key, default=None):
+    icp = request.env['ir.config_parameter'].sudo()
+    return icp.get_param(key, default)
 
-    @staticmethod
-    def _chat_complete(messages):
-        import requests, json
-        cfg = AiAssistantLiveVoiceController._get_cfg()
-        if not cfg['api_key']:
-            return False, 'API key missing. Set it in Settings → Technical → System Parameters (ai_assistant.api_key).'
+def _groq_chat_reply(prompt_text):
+    # Read settings (with safe defaults)
+    base_url = _get_param('ai_assistant.base_url', 'https://api.groq.com/openai/v1')
+    api_key  = _get_param('ai_assistant.api_key')
+    model    = _get_param('ai_assistant.model', 'llama-3.1-8b-instant')
+    system   = _get_param('ai_assistant.system',
+                          'You are an Odoo assistant. Answer briefly and helpfully.')
 
-        url = cfg['base_url'].rstrip('/') + '/chat/completions'
-        headers = {
-            'Authorization': 'Bearer ' + cfg['api_key'],
-            'Content-Type': 'application/json'
-        }
-        payload = {
-            'model': cfg['model'],
-            'messages': messages,
-            'temperature': 0.6,
-        }
+    if not api_key:
+        return ('ERROR: Missing API key (ai_assistant.api_key). '
+                'Set it in Settings ▸ Technical ▸ System Parameters.')
+
+    url = base_url.rstrip('/') + '/chat/completions'
+    headers = {
+        'Authorization': 'Bearer ' + api_key,
+        'Content-Type': 'application/json',
+    }
+    payload = {
+        'model': model,
+        'messages': [
+            {'role': 'system', 'content': system},
+            {'role': 'user', 'content': prompt_text},
+        ],
+        'temperature': 0.4,
+        'stream': False,
+    }
+
+    try:
+        resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=60)
+    except Exception as e:
+        return 'ERROR: HTTP error reaching Groq endpoint: {0}'.format(e)
+
+    if resp.status_code >= 400:
+        # Try to extract a readable error from Groq error shape
         try:
-            resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=60)
-        except Exception as e:
-            return False, 'HTTP error: {}'.format(e)
+            err = resp.json()
+            msg = err.get('error', {}).get('message') or str(err)
+        except Exception:
+            msg = resp.text
+        return 'ERROR: {0} ({1})'.format(msg, resp.status_code)
 
-        if resp.status_code != 200:
-            try:
-                data = resp.json()
-                msg = data.get('error', {}).get('message') or data
-            except Exception:
-                msg = resp.text
-            return False, 'API error ({}): {}'.format(resp.status_code, msg)
+    try:
+        data = resp.json()
+    except Exception:
+        return 'ERROR: Non-JSON response from model: {0}'.format(resp.text[:400])
 
-        try:
-            data = resp.json()
-            choices = data.get('choices') or []
-            text = None
-            if choices:
-                text = (((choices[0] or {}).get('message') or {}).get('content'))
-                if not text:
-                    text = (choices[0] or {}).get('text')
-            if not text:
-                return False, 'Empty response from model.'
-            return True, str(text)
-        except Exception as e:
-            return False, 'Parse error: {}'.format(e)
+    # Robust content extraction: message.content or text (both supported by Groq compat)
+    try:
+        choice = data.get('choices', [{}])[0]
+        content = None
+        if isinstance(choice, dict):
+            msg = choice.get('message') or {}
+            content = (msg.get('content') if isinstance(msg, dict) else None) or choice.get('text')
+        if not content:
+            return 'ERROR: Model returned no content.'
+        return content.strip()
+    except Exception as e:
+        return 'ERROR: Failed to parse model response: {0}'.format(e)
 
-    @http.route('/ai_assistant/live_chat', type='http', auth='user', csrf=False)
+_HTML = """
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Live Voice Chat</title>
+</head>
+<body>
+<h2>Live Voice Chat</h2>
+<div id="micstate">Mic: idle</div>
+<pre id="log" style="height:400px; overflow:auto; border:1px solid #ccc; padding:8px;"></pre>
+<form onsubmit="sendText(); return false;" style="margin-top:6px;">
+  <input id="q" type="text" placeholder="Type or speak..." style="width:70%;">
+  <button type="submit">Send</button>
+  <button type="button" onclick="startLive()">Live</button>
+  <button type="button" onclick="stopLive()">Stop</button>
+</form>
+
+<script>
+var logEl = document.getElementById('log');
+var qEl   = document.getElementById('q');
+var micEl = document.getElementById('micstate');
+
+function append(role, text) {
+  if (!text) text = '(no reply)';
+  logEl.textContent += role + ":\\n" + text + "\\n\\n";
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function sendText() {
+  var t = qEl.value.trim();
+  if (!t) return;
+  append('You', t);
+  qEl.value = '';
+  fetch('/ai_assistant/live_reply', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'q=' + encodeURIComponent(t)
+  }).then(r => r.text()).then(txt => {
+    if (txt && txt.indexOf('ERROR:') === 0) {
+      append('Assistant', 'Error: ' + txt.substring(6).trim());
+    } else {
+      append('Assistant', txt || '(no reply)');
+      speak(txt || '');
+    }
+  }).catch(e => append('Assistant', 'Error: ' + e));
+}
+
+// --- Speech: prevent the mic from hearing itself
+var rec = null;
+var speaking = false;
+
+function detectLang(s) {
+  // crude Arabic detection
+  return /[\\u0600-\\u06FF]/.test(s) ? 'ar-LY' : 'en-US';
+}
+function startLive() {
+  try {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { append('Assistant', 'Error: SpeechRecognition not supported in this browser.'); return; }
+    rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = false;
+    // default language; we’ll adjust dynamically on results
+    rec.lang = 'en-US';
+    rec.onstart = function(){ micEl.textContent = 'Mic: listening...'; };
+    rec.onerror = function(e){ append('Assistant', 'Error: mic ' + (e && e.error ? e.error : e)); };
+    rec.onend = function(){ micEl.textContent = 'Mic: idle'; };
+    rec.onresult = function(ev){
+      var txt = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        if (ev.results[i].isFinal) { txt += ev.results[i][0].transcript; }
+      }
+      txt = txt.trim();
+      if (!txt) return;
+      if (speaking) return; // ignore while assistant is speaking
+      // set language for next chunk
+      rec.lang = detectLang(txt);
+      // send
+      append('You', txt);
+      fetch('/ai_assistant/live_reply', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'q=' + encodeURIComponent(txt)
+      }).then(r => r.text()).then(ans => {
+        if (ans && ans.indexOf('ERROR:') === 0) {
+          append('Assistant', 'Error: ' + ans.substring(6).trim());
+        } else {
+          append('Assistant', ans || '(no reply)');
+          speak(ans || '');
+        }
+      }).catch(e => append('Assistant', 'Error: ' + e));
+    };
+    rec.start();
+  } catch(e) {
+    append('Assistant', 'Error: could not start mic: ' + e);
+  }
+}
+function stopLive(){ if (rec) try { rec.stop(); } catch(e){} micEl.textContent = 'Mic: idle'; }
+
+function speak(text){
+  if (!('speechSynthesis' in window)) return;
+  if (!text) return;
+  try {
+    speaking = true;
+    var u = new SpeechSynthesisUtterance(text);
+    // choose voice language to match the text
+    u.lang = detectLang(text);
+    u.onend = function(){ speaking = false; };
+    u.onerror = function(){ speaking = false; };
+    window.speechSynthesis.speak(u);
+  } catch(e) { speaking = false; }
+}
+</script>
+</body>
+</html>
+"""
+
+class LiveVoiceController(http.Controller):
+
+    @http.route('/ai_assistant/live_chat', type='http', auth='user')
     def live_chat(self, **kw):
-        cfg = self._get_cfg()
-        warn = '' if cfg['api_key'] else "<p style='color:red'>⚠️ No API key configured. Set ai_assistant.api_key to use Groq/OpenAI-compatible API.</p>"
-        tpl = []
-        tpl.append('<!doctype html>')
-        tpl.append('<html>')
-        tpl.append('<head>')
-        tpl.append("<meta charset=\'utf-8\' />")
-        tpl.append('<title>Live Voice Chat</title>')
-        tpl.append('<meta name="viewport" content="width=device-width,initial-scale=1" />')
-        tpl.append('</head>')
-        tpl.append('<body>')
-        tpl.append('<h2>Live Voice Chat</h2>')
-        tpl.append(warn)
-        tpl.append("<div id=\'mic\'>Mic: <span id=\'mic_state\'>idle</span></div>")
-        tpl.append("<div id=\'log\' style=\'white-space:pre-wrap;border:1px solid #ccc;padding:8px;height:60vh;overflow:auto;margin:8px 0\'></div>")
-        tpl.append("<textarea id=\'q\' placeholder=\'Type or speak...\' style=\'width:70%\'></textarea>")
-        tpl.append("<button id=\'send\'>Send</button>")
-        tpl.append("<button id=\'live\'>Live</button>")
-        tpl.append("<button id=\'stop\'>Stop</button>")
-        tpl.append('<script>')
-        tpl.append('(function(){')
-        tpl.append("const log=document.getElementById(\'log\');const micSpan=document.getElementById(\'mic_state\');const q=document.getElementById(\'q\');const btnSend=document.getElementById(\'send\');const btnLive=document.getElementById(\'live\');const btnStop=document.getElementById(\'stop\');")
-        tpl.append("function append(role,text){log.textContent+=role+':\\n'+(text||'(no reply)')+'\\n\\n';log.scrollTop=log.scrollHeight;}")
-        tpl.append('// TTS')
-        tpl.append('let speaking=false;')
-        tpl.append('function speak(text){try{speaking=true;if(\'speechSynthesis\' in window){const u=new SpeechSynthesisUtterance(text);if(/[\\u0600-\\u06FF]/.test(text))u.lang=\'ar-SA\';else u.lang=\'en-US\';u.onend=()=>{speaking=false;};window.speechSynthesis.cancel();window.speechSynthesis.speak(u);}else{speaking=false;}}catch(e){speaking=false;}}')
-        tpl.append('async function send(text){if(!text)return;append("You",text);q.value="";try{const form=new URLSearchParams();form.set("q",text);const r=await fetch("/ai_assistant/send",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:form});const ct=(r.headers.get("content-type")||"").toLowerCase();let payload=await r.text();let out=payload;try{if(ct.includes("application/json")){const j=JSON.parse(payload);out=j.ok?j.text:("Error: "+(j.error||"unknown"));}}catch(e){}append("Assistant",out);if(!out.startsWith("Error: "))speak(out);}catch(e){append("Assistant","Error: "+e);}}')
-        tpl.append('document.getElementById("send").onclick=()=>send(q.value);')
-        tpl.append('// Speech Recognition')
-        tpl.append('let recog;let stopReq=false;')
-        tpl.append('function startLive(){if(!(\'webkitSpeechRecognition\' in window||\'SpeechRecognition\' in window)){append("System","Browser speech recognition not available.");return;}const SR=window.SpeechRecognition||window.webkitSpeechRecognition;recog=new SR();recog.lang="en-US";recog.continuous=true;recog.interimResults=false;recog.onstart=()=>micSpan.textContent="listening...";recog.onend=()=>{if(!stopReq)try{recog.start();}catch(e){}};recog.onerror=(ev)=>{micSpan.textContent="error";append("System","Mic error: "+(ev&&ev.error?ev.error:"unknown"));};recog.onresult=(ev)=>{if(speaking)return;const last=ev.results[ev.results.length-1];const text=(last&&last[0]&&last[0].transcript?last[0].transcript.trim():"");if(!text)return;if(/[\\u0600-\\u06FF]/.test(text))recog.lang="ar-SA";else recog.lang="en-US";send(text);};stopReq=false;try{recog.start();}catch(e){append("System","Failed to start mic: "+e);} }')
-        tpl.append('function stopLive(){stopReq=true;if(recog)try{recog.stop();}catch(e){}micSpan.textContent="idle";}')
-        tpl.append('document.getElementById("live").onclick=startLive;document.getElementById("stop").onclick=stopLive;')
-        tpl.append('})();')
-        tpl.append('</script>')
-        tpl.append('</body>')
-        tpl.append('</html>')
-        return '\n'.join(tpl)
+        return request.make_response(_HTML, headers=[('Content-Type', 'text/html; charset=utf-8')])
 
-    @http.route('/ai_assistant/send', type='http', auth='user', csrf=False, methods=['POST'])
-    def send(self, **post):
-        import json as _json
-        q = (post.get('q') or '').strip()
+    @http.route('/ai_assistant/live_reply', type='http', auth='user', methods=['POST'], csrf=False)
+    def live_reply(self, **kw):
+        # Accept plain form field q
+        q = (kw.get('q') or '').strip()
         if not q:
-            payload = {'ok': False, 'error': 'Empty input.'}
-            return request.make_response(_json.dumps(payload), headers=[('Content-Type','application/json; charset=utf-8')])
-        cfg = self._get_cfg()
-        messages = [
-            {'role':'system','content': cfg['system']},
-            {'role':'user','content': q},
-        ]
-        ok, out = self._chat_complete(messages)
-        if ok:
-            payload = {'ok': True, 'text': out}
-        else:
-            payload = {'ok': False, 'error': out}
-        return request.make_response(_json.dumps(payload), headers=[('Content-Type','application/json; charset=utf-8')])
+            return request.make_response('ERROR: empty question', [('Content-Type', 'text/plain; charset=utf-8')])
+        text = _groq_chat_reply(q)
+        # Always return text/plain so the frontend can print it directly
+        return request.make_response(text, [('Content-Type', 'text/plain; charset=utf-8')])
