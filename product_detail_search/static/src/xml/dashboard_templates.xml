@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <templates id="pds_dashboard_templates" xml:space="preserve">
-
-  <!-- Root stays the same -->
+  <!-- Client action root -->
   <t t-name="CustomDashBoardFindProduct">
     <div class="pds-wrap container">
       <div class="barcode_inventory">
@@ -10,11 +9,9 @@
     </div>
   </t>
 
-  <!-- Minimal, pretty UI -->
+  <!-- Minimal dashboard: input + 2 tiles -->
   <t t-name="product_detail_search_template">
     <div class="pds rtl">
-
-      <!-- Scan box -->
       <div class="scan">
         <input class="scan-input"
                t-att-value="state.barcode"
@@ -23,51 +20,33 @@
                placeholder="امسح أو اكتب الباركود / Scan or type barcode"/>
       </div>
 
-      <!-- Header (logo + name) -->
       <t t-if="state.details" t-set="d" t-value="state.details"/>
       <t t-if="state.details">
         <div class="head">
-          <!-- Use your module icon as a logo; replace with company logo if you prefer -->
           <img class="logo" src="/product_detail_search/static/description/icon.png"/>
           <div class="name" t-esc="d.name"/>
         </div>
 
-        <!-- Tiles row -->
         <div class="tiles">
-          <!-- Package total -->
           <div class="tile">
-            <div class="tile-header tile-orange">
-              <t t-esc="_t('عبوة')"/> <!-- “Package” -->
-            </div>
-            <div class="tile-value">
-              <t t-esc="(d.package_price || 0).toFixed(3)"/>
-            </div>
+            <div class="tile-header tile-orange"><t t-esc="_t('عبوة')"/></div>
+            <div class="tile-value"><t t-esc="(d.package_price || 0).toFixed(3)"/></div>
             <div class="tile-sub" t-if="d.package_qty">
-              <t t-esc="d.currency_symbol"/> •
-              <t t-esc="d.package_qty"/> × <t t-esc="d.uom"/>
+              <t t-esc="d.currency_symbol"/> • <t t-esc="d.package_qty"/> × <t t-esc="d.uom"/>
             </div>
-            <div class="tile-sub" t-if="!d.package_qty">
-              <t t-esc="_t('لا توجد عبوة')"/>
-            </div>
+            <div class="tile-sub" t-if="!d.package_qty"><t t-esc="_t('لا توجد عبوة')"/></div>
           </div>
 
-          <!-- Unit price -->
           <div class="tile">
-            <div class="tile-header tile-blue">
-              <t t-esc="_t('قطعة')"/> <!-- “Piece / Unit” -->
-            </div>
-            <div class="tile-value">
-              <t t-esc="(d.price || 0).toFixed(3)"/>
-            </div>
-            <div class="tile-sub">
-              <t t-esc="d.currency_symbol"/> • <t t-esc="d.uom"/>
-            </div>
+            <div class="tile-header tile-blue"><t t-esc="_t('قطعة')"/></div>
+            <div class="tile-value"><t t-esc="(d.price || 0).toFixed(3)"/></div>
+            <div class="tile-sub"><t t-esc="d.currency_symbol"/> • <t t-esc="d.uom"/></div>
           </div>
         </div>
       </t>
 
       <t t-if="state.details === null && state.barcode">
-        <div class="not-found"><t t-esc="_t('لم يتم العثور على منتج')" /></div>
+        <div class="not-found"><t t-esc="_t('لم يتم العثور على منتج')"/></div>
       </t>
     </div>
   </t>
