@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <templates id="pds_dashboard_templates" xml:space="preserve">
 
-  <!-- Root client action template -->
   <t t-name="CustomDashBoardFindProduct">
     <div class="pds-wrap container">
       <div class="barcode_inventory">
@@ -10,7 +9,6 @@
     </div>
   </t>
 
-  <!-- Minimal dashboard -->
   <t t-name="product_detail_search_template">
     <div class="pds rtl">
       <div class="scan">
@@ -31,26 +29,26 @@
         <div class="tiles">
           <div class="tile">
             <div class="tile-header tile-orange"><t t-esc="_t('عبوة')"/></div>
-            <div class="tile-value"><t t-esc="(d.package_price or 0).toFixed(3)"/></div>
+            <div class="tile-value"><t t-esc="(d.package_price || 0).toFixed(3)"/></div>
             <t t-if="d.package_qty">
               <div class="tile-sub">
                 <t t-esc="d.currency_symbol"/> • <t t-esc="d.package_qty"/> × <t t-esc="d.uom"/>
               </div>
             </t>
-            <t t-if="not d.package_qty">
+            <t t-if="!d.package_qty">
               <div class="tile-sub"><t t-esc="_t('لا توجد عبوة')"/></div>
             </t>
           </div>
 
           <div class="tile">
             <div class="tile-header tile-blue"><t t-esc="_t('قطعة')"/></div>
-            <div class="tile-value"><t t-esc="(d.price or 0).toFixed(3)"/></div>
+            <div class="tile-value"><t t-esc="(d.price || 0).toFixed(3)"/></div>
             <div class="tile-sub"><t t-esc="d.currency_symbol"/> • <t t-esc="d.uom"/></div>
           </div>
         </div>
       </t>
 
-      <t t-if="state.details === null and state.barcode">
+      <t t-if="state.details === null && state.barcode">
         <div class="not-found"><t t-esc="_t('لم يتم العثور على منتج')"/></div>
       </t>
     </div>
