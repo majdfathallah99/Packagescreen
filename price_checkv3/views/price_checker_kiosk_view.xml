@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+  <record id="view_price_checker_kiosk_form" model="ir.ui.view">
+    <field name="name">price.checker.kiosk.form</field>
+    <field name="model">price.checker.wizard</field>
+    <field name="arch" type="xml">
+      <form string="Start Scanner" create="0" edit="0" delete="0" class="pc-form">
+        <group>
+          <field name="barcode" placeholder="Scan or type..." force_save="1" class="pc-barcode"/>
+        </group>
+        <separator/>
+        <field name="kiosk_html" widget="html" nolabel="1"/>
+        <footer>
+          <button string="Close" class="btn-secondary" special="cancel"/>
+        </footer>
+      </form>
+    </field>
+  </record>
+
+  <record id="action_price_checker_kiosk" model="ir.actions.act_window">
+    <field name="name">Start Scanner</field>
+    <field name="res_model">price.checker.wizard</field>
+    <field name="view_mode">form</field>
+    <field name="view_id" ref="view_price_checker_kiosk_form"/>
+    <field name="target">new</field>
+    <field name="context">{'dialog_class':'modal-fullscreen pc-dialog'}</field>
+  </record>
+
+  <menuitem id="menu_price_checker_app"
+            name="Price Checker"
+            sequence="10"
+            web_icon="price_check,static/description/icon.png"/>
+
+  <menuitem id="menu_price_checker_open"
+            name="Start Scanner"
+            parent="menu_price_checker_app"
+            action="action_price_checker_kiosk"
+            sequence="10"/>
+</odoo>

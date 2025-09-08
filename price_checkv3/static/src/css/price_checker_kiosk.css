@@ -1,0 +1,24 @@
+/* Force fullscreen modal */
+.o_dialog.modal .modal-dialog{max-width:100%!important;width:100%!important;margin:0!important;height:100%!important}
+.o_dialog.modal .modal-content{height:100%!important;border-radius:0!important;border:0}
+
+/* Kiosk look */
+.pc-form .o_group{border:0;box-shadow:none}
+.pc-barcode{font-size:22px}
+
+.pc-kiosk{display:grid;grid-template-rows:auto auto 1fr;align-items:center;justify-items:center;min-height:70vh;padding:2rem 1rem 3rem}
+
+.pc-logo{width:96px;height:96px;margin-bottom:.75rem;background-size:contain;background-repeat:no-repeat;background-position:center}
+
+.pc-name{font-size:24px;font-weight:600;margin-bottom:1.5rem}
+
+.pc-row{display:grid;grid-template-columns:1fr 1fr;gap:2rem;width:min(900px,92vw)}
+
+.pc-col{text-align:center}
+
+.pc-pill{display:inline-block;padding:.6rem 1.2rem;border-radius:.6rem;color:#fff;font-weight:600;margin-bottom:.8rem;min-width:160px}
+.pc-pill-left{background:#cf6a30}
+.pc-pill-right{background:#2c64d8}
+
+.pc-price{font-size:48px;font-weight:700;letter-spacing:.5px}
+@media (max-width:768px){.pc-row{grid-template-columns:1fr;gap:1.25rem}.pc-price{font-size:40px}}
