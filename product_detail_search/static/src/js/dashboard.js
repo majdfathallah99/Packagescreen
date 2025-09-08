@@ -3,7 +3,7 @@
 import { registry } from "@web/core/registry";
 const { Component, useState } = owl;
 import { useService } from "@web/core/utils/hooks";
-
+import { _t } from "@web/core/l10n/translation";
 class ProductDetailSearchDashboard extends Component {
     setup() {
         this.orm = useService("orm");
