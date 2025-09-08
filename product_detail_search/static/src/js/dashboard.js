@@ -1,40 +1,58 @@
-/** @odoo-module */
+/** @odoo-module **/
 
-import { registry } from '@web/core/registry';
+import { registry } from "@web/core/registry";
 const { Component, useState } = owl;
 import { useService } from "@web/core/utils/hooks";
 
-class product_detail_search_barcode_dashboard extends Component {
+class ProductDetailSearchDashboard extends Component {
     setup() {
-        this.action = useService("action");
-        this.rpc = this.env.services.rpc;
-        this.action = useService("action");
         this.orm = useService("orm");
+        this.notification = useService("notification");
+
         this.state = useState({
-            product_details: [],
-            barcode_value: [],
+            barcode: "",
+            details: null, // <-- single dict or null
         });
+
+        this._typed = false;
     }
 
-    onProductKeypress(e) {
-        this.typed_into = true;
+    onProductKeypress() {
+        this._typed = true;
     }
 
-    change_product_barcode(e) {
-        var self = this;
-        this.state.barcode_value = e.target.value
-        if (this.typed_into) {
-            this.orm.call("product.template", "product_detail_search", ["", self.state.barcode_value]).then(function(result) {
-                if (result != false) {
-                    self.state.product_details = result;
-                } else {
-                    self.state.product_details = [];
-                }
-            });
-            this.typed_into = false;
+    async change_product_barcode(ev) {
+        this.state.barcode = ev.target.value || "";
+        if (!this._typed) {
+            return;
+        }
+        this._typed = false;
+        const barcode = this.state.barcode.trim();
+        if (!barcode) {
+            this.state.details = null;
+            return;
+        }
+        try {
+            // Python method returns [ {..} ] or False
+            const res = await this.orm.call(
+                "product.template",
+                "product_detail_search",
+                [[], barcode]
+            );
+            this.state.details = (res && res.length) ? res[0] : null;
+            if (!this.state.details) {
+                this.notification.add(this.env._t("Product not found."), { type: "warning" });
+            }
+        } catch (e) {
+            this.notification.add(this.env._t("Error fetching product."), { type: "danger" });
+            // console.error(e);
+            this.state.details = null;
         }
     }
 }
 
-product_detail_search_barcode_dashboard.template = 'CustomDashBoardFindProduct';
-registry.category("actions").add("product_detail_search_barcode_main_menu", product_detail_search_barcode_dashboard);
+ProductDetailSearchDashboard.template = "CustomDashBoardFindProduct";
+registry.category("actions").add(
+    "product_detail_search_barcode_main_menu",
+    ProductDetailSearchDashboard
+);
