@@ -1,0 +1,32 @@
+.pds { padding: 24px 8px; }
+.pds.rtl { direction: rtl; text-align: center; }
+
+.scan { margin-bottom: 24px; display: flex; justify-content: center; }
+.scan-input {
+  width: min(520px, 90%); height: 44px; padding: 0 14px;
+  border: 1px solid #ddd; border-radius: 10px; font-size: 16px;
+}
+
+.head { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 10px 0 22px; }
+.logo { width: 56px; height: 56px; object-fit: contain; opacity: 0.95; }
+.name { font-size: 20px; font-weight: 600; color: #333; }
+
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 18px; max-width: 720px; margin: 0 auto; }
+.tile {
+  background: #fff; border-radius: 14px; box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+  padding-bottom: 14px;
+}
+.tile-header {
+  border-top-left-radius: 14px; border-top-right-radius: 14px;
+  color: #fff; font-weight: 600; padding: 10px 12px; font-size: 16px;
+}
+.tile-orange { background: #d67842; } /* close to screenshot */
+.tile-blue { background: #2f66c3;  }  /* close to screenshot */
+
+.tile-value {
+  font-size: 46px; font-weight: 700; color: #444; letter-spacing: 1px;
+  padding: 14px 8px 2px;
+}
+.tile-sub { font-size: 14px; color: #6b6b6b; }
+
+.not-found { margin-top: 24px; font-size: 18px; color: #a33; }
