@@ -2,39 +2,50 @@
 
 import { patch } from "@web/core/utils/patch";
 import { FormController } from "@web/views/form/form_controller";
-import { onMounted, onWillUpdateProps } from "@odoo/owl";
+import { onMounted, onPatched } from "@odoo/owl";
 
 patch(FormController.prototype, "price_check_kiosk_autofocus", {
     setup() {
         this._super(...arguments);
+
+        const toFullscreen = () => {
+            document.querySelector(".modal-dialog")?.classList.add("modal-fullscreen");
+            document.querySelector(".o_dialog")?.classList.add("modal-fullscreen");
+        };
+
         const focusBarcode = () => {
-            const el = this.root.el?.querySelector('input[name="barcode"]');
+            const root = this?.root?.el;
+            if (!root) return;
+            const el = root.querySelector('input[name="barcode"]');
             if (el) {
                 el.focus();
                 el.select?.();
             }
         };
+
         onMounted(() => {
-            document.querySelector(".modal-dialog")?.classList.add("modal-fullscreen");
-            document.querySelector(".o_dialog")?.classList.add("modal-fullscreen");
+            toFullscreen();
             focusBarcode();
         });
-        onWillUpdateProps(focusBarcode);
-        this.focusBarcode = focusBarcode;
+        onPatched(() => {
+            toFullscreen();
+            focusBarcode();
+        });
     },
 
     async saveButtonClicked(ev) {
-        ev?.preventDefault?.();
+        ev?.preventDefault?.(); // don’t close the kiosk
     },
 });
 
+// Enter triggers onchange without clicking elsewhere
 document.addEventListener("keydown", (ev) => {
-    const active = document.activeElement;
-    if (active && active.getAttribute("name") === "barcode" && ev.key === "Enter") {
+    const a = document.activeElement;
+    if (a && a.getAttribute("name") === "barcode" && ev.key === "Enter") {
         ev.preventDefault();
         ev.stopPropagation();
-        active.dispatchEvent(new Event("change", { bubbles: true }));
-        active.blur();
-        setTimeout(() => active.focus(), 100);
+        a.dispatchEvent(new Event("change", { bubbles: true }));
+        a.blur();
+        setTimeout(() => a.focus(), 80);
     }
 });
