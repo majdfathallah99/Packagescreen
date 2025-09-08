@@ -9,18 +9,10 @@ class ProductDetailSearchDashboard extends Component {
     setup() {
         this.orm = useService("orm");
         this.notification = useService("notification");
-
-        this.state = useState({
-            barcode: "",
-            details: null, // single dict or null
-        });
-
+        this.state = useState({ barcode: "", details: null });
         this._typed = false;
     }
-
-    onProductKeypress() {
-        this._typed = true;
-    }
+    onProductKeypress() { this._typed = true; }
 
     async change_product_barcode(ev) {
         this.state.barcode = ev.target.value || "";
@@ -31,24 +23,14 @@ class ProductDetailSearchDashboard extends Component {
         if (!barcode) { this.state.details = null; return; }
 
         try {
-            const res = await this.orm.call(
-                "product.template",
-                "product_detail_search",
-                [[], barcode]
-            );
+            const res = await this.orm.call("product.template", "product_detail_search", [[], barcode]);
             this.state.details = (res && res.length) ? res[0] : null;
-            if (!this.state.details) {
-                this.notification.add(_t("Product not found."), { type: "warning" }); // <-- fixed
-            }
+            if (!this.state.details) this.notification.add(_t("Product not found."), { type: "warning" });
         } catch (e) {
-            this.notification.add(_t("Error fetching product."), { type: "danger" }); // <-- fixed
+            this.notification.add(_t("Error fetching product."), { type: "danger" });
             this.state.details = null;
         }
     }
 }
-
 ProductDetailSearchDashboard.template = "CustomDashBoardFindProduct";
-registry.category("actions").add(
-    "product_detail_search_barcode_main_menu",
-    ProductDetailSearchDashboard
-);
+registry.category("actions").add("product_detail_search_barcode_main_menu", ProductDetailSearchDashboard);
