@@ -29,10 +29,10 @@
         <div class="tiles">
           <div class="tile">
             <div class="tile-header tile-orange"><t t-esc="_t('عبوة')"/></div>
-            <div class="tile-value"><t t-esc="(d.package_price || 0).toFixed(3)"/></div>
+            <div class="tile-value"><t t-esc="(Number(d.package_price || 0)).toFixed(3)"/></div>
             <t t-if="d.package_qty">
               <div class="tile-sub">
-                <t t-esc="d.currency_symbol"/> • <t t-esc="d.package_qty"/> × <t t-esc="d.uom"/>
+                <t t-esc="d.currency_symbol"/> &#183; <t t-esc="d.package_qty"/> &#215; <t t-esc="d.uom"/>
               </div>
             </t>
             <t t-if="!d.package_qty">
@@ -42,8 +42,8 @@
 
           <div class="tile">
             <div class="tile-header tile-blue"><t t-esc="_t('قطعة')"/></div>
-            <div class="tile-value"><t t-esc="(d.price || 0).toFixed(3)"/></div>
-            <div class="tile-sub"><t t-esc="d.currency_symbol"/> • <t t-esc="d.uom"/></div>
+            <div class="tile-value"><t t-esc="(Number(d.price || 0)).toFixed(3)"/></div>
+            <div class="tile-sub"><t t-esc="d.currency_symbol"/> &#183; <t t-esc="d.uom"/></div>
           </div>
         </div>
       </t>
