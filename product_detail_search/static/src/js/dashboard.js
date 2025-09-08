@@ -11,6 +11,7 @@ class ProductDetailSearchDashboard extends Component {
         this.notification = useService("notification");
         this.state = useState({ barcode: "", details: null });
         this._typed = false;
+        this._t = _t;
     }
     onProductKeypress() { this._typed = true; }
 
