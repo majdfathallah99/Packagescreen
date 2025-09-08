@@ -29,7 +29,8 @@
         <div class="tiles">
           <div class="tile">
             <div class="tile-header tile-orange"><t t-esc="_t('عبوة')"/></div>
-            <div class="tile-value"><t t-esc="(Number(d.package_price || 0)).toFixed(3)"/></div>
+            <!-- unary + to coerce, then keep 3 decimals -->
+            <div class="tile-value"><t t-esc="((+d.package_price) || 0).toFixed(3)"/></div>
             <t t-if="d.package_qty">
               <div class="tile-sub">
                 <t t-esc="d.currency_symbol"/> - <t t-esc="d.package_qty"/> x <t t-esc="d.uom"/>
@@ -42,14 +43,15 @@
 
           <div class="tile">
             <div class="tile-header tile-blue"><t t-esc="_t('قطعة')"/></div>
-            <div class="tile-value"><t t-esc="(Number(d.price || 0)).toFixed(3)"/></div>
+            <!-- unary + to coerce, then keep 3 decimals -->
+            <div class="tile-value"><t t-esc="((+d.price) || 0).toFixed(3)"/></div>
             <div class="tile-sub"><t t-esc="d.currency_symbol"/> - <t t-esc="d.uom"/></div>
           </div>
         </div>
       </t>
 
+      <!-- escape && for XML -->
       <t t-if="state.details === null &amp;&amp; state.barcode">
-
         <div class="not-found"><t t-esc="_t('لم يتم العثور على منتج')"/></div>
       </t>
     </div>
