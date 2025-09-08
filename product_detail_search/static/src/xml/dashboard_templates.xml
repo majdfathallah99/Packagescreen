@@ -48,7 +48,8 @@
         </div>
       </t>
 
-      <t t-if="state.details === null && state.barcode">
+      <t t-if="state.details === null &amp;&amp; state.barcode">
+
         <div class="not-found"><t t-esc="_t('لم يتم العثور على منتج')"/></div>
       </t>
     </div>
