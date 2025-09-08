@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <template id="kiosk_template" name="Price Checker Kiosk">
+    <t t-call="web.layout">
+      <div class="pcfp-page">
+        <div class="pcfp-wrap">
+          <div class="pcfp-logo"></div>
+          <input id="pcfp-input" placeholder="Scan or type..." autofocus/>
+          <div class="pcfp-name" id="pcfp-name">—</div>
+          <div class="pcfp-row">
+            <div class="pcfp-col">
+              <div class="pcfp-pill pcfp-left" id="pcfp-left-title">—</div>
+              <div class="pcfp-price" id="pcfp-left-value">—</div>
+            </div>
+            <div class="pcfp-col" id="pcfp-right-col" style="display:none">
+              <div class="pcfp-pill pcfp-right" id="pcfp-right-title">—</div>
+              <div class="pcfp-price" id="pcfp-right-value">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <style>
+        .pcfp-page{min-height:calc(100vh - 48px);display:flex;align-items:center;justify-content:center}
+        .pcfp-wrap{display:grid;grid-template-rows:auto auto auto 1fr;justify-items:center;gap:12px;padding:16px}
+        #pcfp-input{font-size:22px;min-width:min(700px,92vw);padding:10px 14px;border:1px solid #ccc;border-radius:8px}
+        .pcfp-name{font-size:24px;font-weight:600;margin-top:6px;margin-bottom:8px}
+        .pcfp-row{display:grid;grid-template-columns:1fr 1fr;gap:24px;width:min(900px,92vw)}
+        .pcfp-col{text-align:center}
+        .pcfp-pill{display:inline-block;padding:.6rem 1.2rem;border-radius:.6rem;color:#fff;font-weight:600;margin-bottom:.8rem;min-width:160px}
+        .pcfp-left{background:#cf6a30}
+        .pcfp-right{background:#2c64d8}
+        .pcfp-price{font-size:48px;font-weight:700;letter-spacing:.5px}
+        @media (max-width:768px){.pcfp-row{grid-template-columns:1fr}.pcfp-price{font-size:40px}#pcfp-input{min-width:92vw}}
+      </style>
+      <script>
+        (function () {
+          function fmt(v){try{return (v).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3})}catch(e){return v}}
+          const input = document.getElementById("pcfp-input");
+          input.addEventListener("keydown", function(ev){
+            if(ev.key==="Enter"){
+              ev.preventDefault();
+              const code = input.value.trim();
+              if(!code){return;}
+              input.select();
+              odoo.jsonRpc("/price_check/api/lookup","call",{barcode:code}).then(function(resp){
+                if(!resp || !resp.ok){document.getElementById("pcfp-name").textContent="—";return;}
+                document.getElementById("pcfp-name").textContent = resp.name || "—";
+                document.getElementById("pcfp-left-title").textContent = resp.left_title || "—";
+                document.getElementById("pcfp-left-value").textContent = (fmt(resp.left_value) + " " + (resp.currency||"")).trim();
+                if(resp.right_value!=null){
+                  document.getElementById("pcfp-right-col").style.display="block";
+                  document.getElementById("pcfp-right-title").textContent = resp.right_title || "—";
+                  document.getElementById("pcfp-right-value").textContent = (fmt(resp.right_value) + " " + (resp.currency||"")).trim();
+                }else{
+                  document.getElementById("pcfp-right-col").style.display="none";
+                }
+              });
+            }
+          });
+        })();
+      </script>
+    </t>
+  </template>
+</odoo>
