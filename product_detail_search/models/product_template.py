@@ -33,41 +33,33 @@ class ProductTemplate(models.Model):
                 'selection'])[field_value])
 
     def product_detail_search(self, barcode):
-        """Find the details for the product When the barcode Scan is
-        Detected"""
-        product = self.env['product.product'].search(
-            [('barcode', '=', barcode)])
-        if product:
-            product_type = self.get_selection_label('product.product','type', product.type)
-            product_details = [
-                {'id': product.id,
-                 'display_name': product.display_name, 'name': product.name,
-                 'type': product.type,
-                 'tax_amount': product.taxes_id,
-                 'barcode': product.barcode,
-                 'default_code': product.default_code,
-                 'qty_available': product.qty_available,
-                 'list_price': product.list_price,
-                 'company_id': product.company_id if product.company_id else False,
-                 'category': product.categ_id.name
-                 }]
-            specification = [color.strip() for color in
-                             product.display_name.split("(")[
-                                 -1].split(")")[0].split(",")]
-            symbol = self.env['res.currency'].browse(product.currency_id.id)
-            extra_details = {'symbol': str(symbol.symbol)}
-            if product.taxes_id:
-                extra_details.update({'tax_amount': str(
-                    self.env['account.tax'].browse(product.taxes_id.id).name),
-                    'specification': specification})
-            else:
-                extra_details.update({'tax_amount': 'No tax',
-                                      'specification': specification})
-            if product_type:
-                extra_details.update({'type': product_type})
-            else:
-                extra_details.update({'type': False})
-            product_details[0].update(extra_details)
-        else:
-            product_details = False
-        return product_details
+    """Find by barcode and return ONLY: name, uom, price, package qty, package price."""
+    product = self.env['product.product'].search([('barcode', '=', barcode)], limit=1)
+    if not product:
+        return False
+
+    # Unit data
+    uom_name = product.uom_id.name or ""
+    unit_price = product.list_price or 0.0  # sales price
+    currency = product.currency_id
+
+    # Choose a packaging: prefer default, else first with qty>1, else first available
+    packaging = product.packaging_ids.filtered(lambda p: getattr(p, "is_default", False))[:1]
+    if not packaging:
+        packaging = product.packaging_ids.filtered(lambda p: (p.qty or 0) > 1)[:1]
+    if not packaging and product.packaging_ids:
+        packaging = product.packaging_ids[:1]
+    packaging = packaging and packaging[0] or False
+
+    package_qty = int(packaging.qty) if (packaging and packaging.qty) else 0
+    package_price = (unit_price * package_qty) if package_qty else 0.0
+
+    return [{
+        'id': product.id,
+        'name': product.display_name,
+        'uom': uom_name,
+        'price': unit_price,
+        'package_qty': package_qty,       # e.g. 10
+        'package_price': package_price,   # e.g. 100 (= price * qty)
+        'currency_symbol': currency.symbol or '',
+    }]
