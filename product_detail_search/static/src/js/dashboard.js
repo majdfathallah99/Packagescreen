@@ -4,6 +4,7 @@ import { registry } from "@web/core/registry";
 const { Component, useState } = owl;
 import { useService } from "@web/core/utils/hooks";
 import { _t } from "@web/core/l10n/translation";
+
 class ProductDetailSearchDashboard extends Component {
     setup() {
         this.orm = useService("orm");
@@ -11,7 +12,7 @@ class ProductDetailSearchDashboard extends Component {
 
         this.state = useState({
             barcode: "",
-            details: null, // <-- single dict or null
+            details: null, // single dict or null
         });
 
         this._typed = false;
@@ -23,17 +24,13 @@ class ProductDetailSearchDashboard extends Component {
 
     async change_product_barcode(ev) {
         this.state.barcode = ev.target.value || "";
-        if (!this._typed) {
-            return;
-        }
+        if (!this._typed) return;
         this._typed = false;
+
         const barcode = this.state.barcode.trim();
-        if (!barcode) {
-            this.state.details = null;
-            return;
-        }
+        if (!barcode) { this.state.details = null; return; }
+
         try {
-            // Python method returns [ {..} ] or False
             const res = await this.orm.call(
                 "product.template",
                 "product_detail_search",
@@ -41,11 +38,10 @@ class ProductDetailSearchDashboard extends Component {
             );
             this.state.details = (res && res.length) ? res[0] : null;
             if (!this.state.details) {
-                this.notification.add(this.env._t("Product not found."), { type: "warning" });
+                this.notification.add(_t("Product not found."), { type: "warning" }); // <-- fixed
             }
         } catch (e) {
-            this.notification.add(this.env._t("Error fetching product."), { type: "danger" });
-            // console.error(e);
+            this.notification.add(_t("Error fetching product."), { type: "danger" }); // <-- fixed
             this.state.details = null;
         }
     }
