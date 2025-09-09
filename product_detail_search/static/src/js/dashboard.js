@@ -1,131 +1,58 @@
-/** @odoo-module **/
+from odoo import models, api
 
-import { registry } from "@web/core/registry";
-const { Component, useState, onMounted, onWillUnmount } = owl;
-import { useService } from "@web/core/utils/hooks";
-import { _t } from "@web/core/l10n/translation";
+class ProductTemplate(models.Model):
+    _inherit = "product.template"
 
-class ProductDetailSearchDashboard extends Component {
-    setup() {
-        this.orm = useService("orm");
-        this.notification = useService("notification");
-        this._t = _t;
+    @api.model
+    def product_detail_search(self, *args, **kwargs):
+        """
+        Accepts multiple calling conventions:
+          - [barcode]
+          - [[], barcode] or ["", barcode]
+          - kwargs: {'barcode': '...'}
+        Returns a list with a single dict or False.
+        """
+        # Extract barcode from args/kwargs safely
+        barcode = kwargs.get("barcode")
+        if barcode is None:
+            if len(args) == 1:
+                barcode = args[0]
+            elif len(args) >= 2:
+                # First arg may be [] or "" (ignored); second is the barcode
+                barcode = args[1]
 
-        this.state = useState({ barcode: "", details: null });
+        if not barcode:
+            return False
 
-        this._debounceTimer = null;
-        this._DEBOUNCE_MS = 250;
-        this._MIN_LEN = 6;
-        this._mounted = false;
+        product = self.env["product.product"].search([("barcode", "=", barcode)], limit=1)
+        if not product:
+            return False
 
-        onMounted(() => {
-            this._mounted = true;
-            setTimeout(() => this.focusInput(), 0);
-        });
-        onWillUnmount(() => {
-            this._mounted = false;
-            if (this._debounceTimer) clearTimeout(this._debounceTimer);
-        });
-    }
+        uom_name = product.uom_id.name or ""
+        unit_price = product.list_price or 0.0
+        currency = product.currency_id or self.env.company.currency_id
 
-    focusInput() {
-        if (!this._mounted) return;
-        const el = (this.refs && this.refs.scanInput)
-            ? this.refs.scanInput
-            : (this.el && this.el.querySelector && this.el.querySelector(".scan-input"));
-        if (el) {
-            el.focus();
-            if (el.select) el.select();
-        }
-    }
+        # Choose a packaging: default > qty>1 > first
+        packaging = product.packaging_ids.filtered(lambda p: getattr(p, "is_default", False))[:1]
+        if not packaging:
+            packaging = product.packaging_ids.filtered(lambda p: (p.qty or 0) > 1)[:1]
+        if not packaging:
+            packaging = product.packaging_ids[:1]
+        packaging = packaging and packaging[0] or False
 
-    onKeyDown(ev) {
-        if (ev.key === "Enter") {
-            ev.preventDefault();
-            const code = (this.state.barcode || "").trim();
-            this._commitScan(code);
-        }
-    }
+        package_qty = int(packaging.qty) if (packaging and packaging.qty) else 0
+        package_price = (unit_price * package_qty) if package_qty else 0.0
 
-    onInput(ev) {
-        this.state.barcode = ev.target.value;
-        if (this._debounceTimer) clearTimeout(this._debounceTimer);
-        this._debounceTimer = setTimeout(() => {
-            const code = (this.state.barcode || "").trim();
-            if (code && code.length >= this._MIN_LEN) {
-                this._commitScan(code);
-            }
-        }, this._DEBOUNCE_MS);
-    }
+        symbol = (currency and currency.symbol) or ""
 
-    async _commitScan(barcode) {
-        if (!barcode) return;
-
-        let details = null;
-        let hadRpcFailure = false;
-
-        // 1) Preferred: call server helper
-        try {
-            const res = await this.orm.call(
-                "product.template",
-                "product_detail_search",
-                [barcode]
-            );
-            details = (res && res.length) ? res[0] : null;
-        } catch (e) {
-            hadRpcFailure = true;
-            // console.error("RPC product_detail_search failed:", e);
-        }
-
-        // 2) Fallback: plain search_read on product.product
-        if (!details) {
-            try {
-                const recs = await this.orm.searchRead(
-                    "product.product",
-                    [["barcode", "=", barcode]],
-                    ["id", "display_name", "default_code", "list_price", "uom_id"]
-                );
-                if (recs && recs.length) {
-                    const p = recs[0];
-                    details = {
-                        id: p.id,
-                        name: p.display_name,
-                        default_code: p.default_code || "",
-                        uom: (p.uom_id && p.uom_id[1]) || "",
-                        price: p.list_price || 0,
-                        // Fallback has no packaging computation:
-                        package_qty: 0,
-                        package_price: 0,
-                        // We purposely don’t depend on company currency here; UI shows $ per your mock.
-                        symbol: "$",
-                        currency_symbol: "$",
-                    };
-                }
-            } catch (e2) {
-                // console.error("Fallback search_read failed:", e2);
-                // Only show a toast if both attempts failed completely
-                if (hadRpcFailure) {
-                    this.notification.add(this._t("Error fetching product."), { type: "danger" });
-                }
-            }
-        }
-
-        // 3) Render or warn (single toast)
-        if (!details) {
-            this.state.details = null;
-            this.notification.add(this._t("Product not found."), { type: "warning" });
-        } else {
-            this.state.details = details;
-        }
-
-        // 4) Prepare for next scan
-        this.state.barcode = "";
-        setTimeout(() => this.focusInput(), 0);
-    }
-}
-
-ProductDetailSearchDashboard.template = "CustomDashBoardFindProduct";
-registry.category("actions").add(
-    "product_detail_search_barcode_main_menu",
-    ProductDetailSearchDashboard
-);
+        return [{
+            "id": product.id,
+            "name": product.display_name,
+            "default_code": product.default_code or "",
+            "uom": uom_name,
+            "price": unit_price,
+            "package_qty": package_qty,
+            "package_price": package_price,
+            "symbol": symbol,
+            "currency_symbol": symbol,  # for templates using either key
+        }]
