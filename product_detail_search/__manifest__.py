@@ -1,36 +1,15 @@
 # -*- coding: utf-8 -*-
-#############################################################################
-#
-#    Cybrosys Technologies Pvt. Ltd.
-#
-#    Copyright (C) 2024-TODAY Cybrosys Technologies(<https://www.cybrosys.com>)
-#    Author: Gokul P I (odoo@cybrosys.com)
-#
-#    You can modify it under the terms of the GNU LESSER
-#    GENERAL PUBLIC LICENSE (LGPL v3), Version 3.
-#
-#    This program is distributed in the hope that it will be useful,
-#    but WITHOUT ANY WARRANTY; without even the implied warranty of
-#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#    GNU LESSER GENERAL PUBLIC LICENSE (LGPL v3) for more details.
-#
-#    You should have received a copy of the GNU LESSER GENERAL PUBLIC LICENSE
-#    (LGPL v3) along with this program.
-#    If not, see <http://www.gnu.org/licenses/>.
-#
-############################################################################## -*- coding: utf-8 -*-
 {
     'name': 'Find Products in Pos and Stock using Barcode',
-    'version': '18.0.1.0.1',  # bumped so upgrade applies cleanly
+    'version': '18.0.1.0.2',  # bump so Odoo reloads
     'category': 'Point of Sale',
     'summary': (
         'Find Products in POS and Stock using barcode scanning to quickly '
         'identify and track items. Each product is assigned a unique barcode.'
     ),
     'description': (
-        'Find Products in POS and Inventory enhances operational efficiency, '
-        'reduces manual errors, improves customer service, and provides '
-        'insights for better inventory management and decisions.'
+        'Find Products in POS and Inventory enhances efficiency, reduces errors, '
+        'improves customer service, and provides better inventory insights.'
     ),
     'author': 'Cybrosys Techno Solutions',
     'company': 'Cybrosys Techno Solutions',
@@ -39,17 +18,18 @@
     'depends': ['point_of_sale', 'stock'],
 
     'data': [
-        'views/stock_views.xml',   # ✅ COMMA FIXED
+        'views/stock_views.xml',   # ✅ comma fixed
         'views/app_menu.xml',
     ],
 
     'images': [
-        'static/description/icon.png',   # optional: shows in Apps list
+        'static/description/icon.png',   # show in Apps grid/app switcher
         'static/description/banner.jpg',
     ],
 
     'assets': {
-        'point_of_sale._assets_pos': [
+        # Odoo 18: use `point_of_sale.assets`
+        'point_of_sale.assets': [
             'product_detail_search/static/src/css/pos.css',
             'product_detail_search/static/src/js/find_product_button.js',
             'product_detail_search/static/src/js/find_product.js',
@@ -68,6 +48,6 @@
 
     'license': 'LGPL-3',
     'installable': True,
-    'application': True,
+    'application': True,   # gives a home-screen tile
     'auto_install': False,
 }
