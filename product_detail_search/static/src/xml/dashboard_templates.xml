@@ -53,21 +53,6 @@
       <t t-if="state.details === null &amp;&amp; state.barcode">
         <div class="not-found"><t t-esc="_t('لم يتم العثور على منتج')"/></div>
       </t>
-
-      <t t-if="state.history and state.history.length">
-        <div class="history" style="margin-top: 24px;">
-          <h3 style="margin-bottom: 8px;"><t t-esc="_t('آخر عمليات المسح')"/></h3>
-          <ul style="list-style:none; padding:0; margin:0;">
-            <t t-foreach="state.history" t-as="h" t-key="h.ts">
-              <li style="padding:6px 0; border-bottom:1px solid #eee;">
-                <span style="font-weight:600;"><t t-esc="h.name or '-'"/></span>
-                <span style="opacity:.7;">(<t t-esc="h.barcode"/>)</span>
-                <span> — <t t-esc="((+ (h.price || 0)) || 0).toFixed(3)"/> <t t-esc="h.symbol"/>/<t t-esc="h.uom or ''"/></span>
-              </li>
-            </t>
-          </ul>
-        </div>
-      </t>
     </div>
   </t>
 </templates>
