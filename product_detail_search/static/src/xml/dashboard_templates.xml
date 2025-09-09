@@ -20,7 +20,6 @@
                placeholder="امسح أو اكتب الباركود / Scan or type barcode"/>
       </div>
 
-      <!-- current product -->
       <t t-set="d" t-value="state.details"/>
       <t t-if="d">
         <div class="head">
@@ -30,7 +29,7 @@
 
         <div class="cards">
           <div class="tile piece">
-            <div class="tile-title"><t t-esc="env._t('قطعة')"/></div>
+            <div class="tile-title"><t t-esc="_t('قطعة')"/></div>
             <div class="tile-value">
               <t t-esc="((+ (d.price || d.list_price) ) || 0).toFixed(3)"/>
             </div>
@@ -40,26 +39,24 @@
           </div>
 
           <div class="tile pack">
-            <div class="tile-title"><t t-esc="env._t('عبوة')"/></div>
+            <div class="tile-title"><t t-esc="_t('عبوة')"/></div>
             <div class="tile-value">
               <t t-esc="((+ (d.package_price || 0) ) || 0).toFixed(3)"/>
             </div>
             <div class="tile-sub">
-              <t t-esc="d.package_qty ? (d.package_qty + ' × ' + (d.uom || '')) : env._t('لا توجد عبوة')"/>
+              <t t-esc="d.package_qty ? (d.package_qty + ' × ' + (d.uom || '')) : _t('لا توجد عبوة')"/>
             </div>
           </div>
         </div>
       </t>
 
-      <!-- not found helper -->
       <t t-if="state.details === null &amp;&amp; state.barcode">
-        <div class="not-found"><t t-esc="env._t('لم يتم العثور على منتج')"/></div>
+        <div class="not-found"><t t-esc="_t('لم يتم العثور على منتج')"/></div>
       </t>
 
-      <!-- scan history -->
       <t t-if="state.history and state.history.length">
         <div class="history" style="margin-top: 24px;">
-          <h3 style="margin-bottom: 8px;"><t t-esc="env._t('آخر عمليات المسح')"/></h3>
+          <h3 style="margin-bottom: 8px;"><t t-esc="_t('آخر عمليات المسح')"/></h3>
           <ul style="list-style:none; padding:0; margin:0;">
             <t t-foreach="state.history" t-as="h" t-key="h.ts">
               <li style="padding:6px 0; border-bottom:1px solid #eee;">
