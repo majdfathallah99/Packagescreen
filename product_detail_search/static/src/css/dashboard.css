@@ -1,92 +1,45 @@
-/* ---------- Layout & RTL ---------- */
-.pds {
-  padding: 36px 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.pds.rtl { direction: rtl; }
+/* ---------- Size & spacing tweaks for Find Product ---------- */
+.pds { --pds-maxw: 880px; --pds-radius: 14px; --pds-gap: 16px; margin: 0 auto; }
+.pds-wrap.container { max-width: var(--pds-maxw); }
 
-/* ---------- Search pill (big) ---------- */
-.pds .scan { margin: 10px 0 28px; }
+.pds .scan { margin: 10px auto 18px; }
 .pds .scan-input{
-  width: 820px; max-width: 96vw; height: 68px;
-  border: 3px solid #111; border-radius: 20px;
-  padding: 12px 22px; font-size: 22px; text-align: center; outline: none;
-  background: #fff;
+  height: 46px;
+  font-size: clamp(14px, 1.8vw, 16px);
+  padding: 10px 14px;
+  border-radius: var(--pds-radius);
+  border-width: 2px;
 }
-.pds .scan-input::placeholder{ opacity:.7; }
-.pds .scan-input:focus{ box-shadow: 0 0 0 5px rgba(17,17,17,.08); }
 
-/* ---------- Header: big round icon + VERY BIG product name ---------- */
-.pds .head{
-  display:flex; flex-direction:column; align-items:center;
-  margin: 6px 0 18px;
-}
-.pds .head .logo{
-  width: 96px; height: 96px; border-radius: 999px;
-  background:#f4f5f7; padding:16px; object-fit:contain;
-  box-shadow: 0 3px 6px rgba(0,0,0,.08);
-}
-/* >>> HUGE name <<< */
-.pds .head .name{
-  margin-top: 10px;
-  font-size: 200px;       /* was 36px */
-  line-height: 1.12;
-  font-weight: 900;
-  letter-spacing: .2px;
-  color:#222;
+.pds .logo{ width: 36px; height: 36px; }
+
+.pds .name{
+  font-weight: 800;
+  letter-spacing: .3px;
+  /* was huge; clamp keeps it reasonable on all screens */
+  font-size: clamp(28px, 6vw, 48px);
+  line-height: 1.1;
+  margin: 18px 0 8px;
   text-align: center;
-  max-width: 90vw;
 }
 
-/* ---------- Cards row ---------- */
-.pds .cards{ display:flex; gap:32px; flex-wrap:wrap; justify-content:center; }
-
-/* ---------- Card (XL) ---------- */
-.pds .tile{
-  width: 600px; max-width: 96vw;
-  border-radius: 18px; background:#fff; overflow:hidden;
-  box-shadow: 0 12px 30px rgba(20,20,20,.10);
-}
-/* >>> BIGGER labels: قطعة / عبوة <<< */
-.pds .tile .tile-title{
-  text-align:center; font-weight:900; color:#fff;
-  padding:18px 20px; font-size:34px;   /* was 28px */
-}
-.pds .tile.piece .tile-title{ background:#1f5bd3; }
-.pds .tile.pack  .tile-title{ background:#d46a1f; }
-
-.pds .tile .tile-value{
-  text-align:center; font-size:96px;   /* was 72px */
-  line-height:1.06;
-  font-weight:900; letter-spacing:.6px;
-  padding:28px 20px 10px; color:#111;
-}
-.pds .tile .tile-sub{
-  text-align:center; color:#8a8a8a; padding:0 20px 24px; font-size:20px;
+/* the big blue UoM pill (قطعة) */
+.pds .btn-primary{
+  font-size: clamp(12px, 2.2vw, 14px);
+  padding: 8px 16px;
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.08);
 }
 
-/* ---------- Not found ---------- */
-.pds .not-found{ margin-top:18px; font-size:22px; color:#b33; }
+/* prices / small texts if you show them */
+.pds .price{ font-size: clamp(18px, 4vw, 24px); }
+.pds .pack, .pds .muted{ font-size: clamp(12px, 2.6vw, 14px); }
 
-/* ---------- Responsive ---------- */
-@media (max-width: 1280px){
-  .pds .head .name{ font-size: 42px; }
-  .pds .tile .tile-title{ font-size:30px; }
-  .pds .tile .tile-value{ font-size:84px; }
-}
-@media (max-width: 1024px){
-  .pds .scan-input{ width: 92vw; height: 62px; font-size:20px; }
-  .pds .head .logo{ width:84px; height:84px; }
-  .pds .head .name{ font-size: 36px; }
-  .pds .tile{ width: 92vw; }
-  .pds .tile .tile-title{ font-size:26px; }
-  .pds .tile .tile-value{ font-size:74px; }
-  .pds .tile .tile-sub{ font-size:18px; }
-}
-@media (max-width: 480px){
-  .pds .head .name{ font-size: 30px; }
-  .pds .tile .tile-title{ font-size:22px; }
-  .pds .tile .tile-value{ font-size:56px; }
+.pds .card{ padding: 16px; border-radius: var(--pds-radius); }
+
+/* slightly smaller circle icon above the name if present */
+.pds .avatar, .pds .avatar img{ width: 56px; height: 56px; }
+
+@media (min-width: 992px){
+  .pds-wrap.container{ max-width: 900px; }
 }
