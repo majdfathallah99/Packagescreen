@@ -9,48 +9,58 @@ class ProductDetailSearchDashboard extends Component {
         this.orm = useService("orm");
         this.state = useState({ barcode: "", details: null });
 
-        this._timer = null;
+        // Scan debounce
         this._DEBOUNCE_MS = 220;
         this._MIN_LEN = 2;
+        this._timer = null;
+
+        // Global scan buffer (fallback when input isn't focused)
+        this._scanBuf = "";
+        this._bufTimer = null;
+
         this._mounted = false;
 
         onMounted(() => {
             this._mounted = true;
-            // focus ASAP and on the next ticks to beat any late layout
+            // focus aggressively (SPA can steal focus)
             this._focus();
             setTimeout(() => this._focus(), 0);
             setTimeout(() => this._focus(), 120);
             requestAnimationFrame(() => this._focus());
+
+            // Global listener so scanning works even if focus moves
+            this._onGlobalKeydown = (ev) => this._handleGlobalKeydown(ev);
+            document.addEventListener("keydown", this._onGlobalKeydown, { capture: true });
         });
-        onPatched(() => {
-            // if anything re-rendered (e.g., details appear), keep the input focused
-            this._focus();
-        });
+
+        onPatched(() => this._focus());
+
         onWillUnmount(() => {
             this._mounted = false;
             if (this._timer) clearTimeout(this._timer);
+            if (this._bufTimer) clearTimeout(this._bufTimer);
+            if (this._onGlobalKeydown) {
+                document.removeEventListener("keydown", this._onGlobalKeydown, { capture: true });
+            }
         });
     }
 
+    // ---------- Focus helpers ----------
     _focus() {
         if (!this._mounted) return;
-        const el = (this.refs && this.refs.scanInput)
-            ? this.refs.scanInput
-            : this.el?.querySelector?.(".scan-input");
+        const el = (this.refs && this.refs.scanInput) ? this.refs.scanInput : this.el?.querySelector?.(".scan-input");
         if (el && document.activeElement !== el) {
             el.focus();
             el.select?.();
         }
     }
-
     _normalize(v) {
         let s = String(v || "").replace(/[\r\n\t]+/g, "").trim();
-        // Strip a leading stray letter some scanners add (e.g., "k123...")
-        if (s && /^[A-Za-z]$/.test(s[0])) s = s.slice(1);
+        if (s && /^[A-Za-z]$/.test(s[0])) s = s.slice(1); // strip stray leading letter from some scanners
         return s;
     }
 
-    // Handlers used by the template (support both styles)
+    // ---------- Input-bound handlers ----------
     onKeyDown(ev) {
         if (ev.key === "Enter") {
             ev.preventDefault();
@@ -60,15 +70,6 @@ class ProductDetailSearchDashboard extends Component {
     }
     onInput(ev) {
         this.state.barcode = ev.target.value;
-        this._debounceCommit();
-    }
-    onProductKeypress() { /* legacy no-op */ }
-    change_product_barcode(ev) {
-        this.state.barcode = ev.target.value;
-        this._debounceCommit();
-    }
-
-    _debounceCommit() {
         if (this._timer) clearTimeout(this._timer);
         this._timer = setTimeout(() => {
             const code = this._normalize(this.state.barcode);
@@ -76,10 +77,45 @@ class ProductDetailSearchDashboard extends Component {
         }, this._DEBOUNCE_MS);
     }
 
+    // ---------- Global fallback: capture scans anywhere ----------
+    _handleGlobalKeydown(ev) {
+        // If user is already typing inside our input, do nothing
+        const isOurInput = ev.target && (ev.target === this.refs?.scanInput);
+        if (isOurInput) return;
+
+        // Ignore when typing in other inputs/contenteditables
+        if (ev.target && (ev.target.tagName === "INPUT" || ev.target.tagName === "TEXTAREA" || ev.target.isContentEditable)) {
+            return;
+        }
+
+        const k = ev.key;
+        if (k === "Enter") {
+            const code = this._normalize(this._scanBuf);
+            this._scanBuf = "";
+            if (code && code.length >= this._MIN_LEN) {
+                ev.preventDefault();
+                this._commitScan(code);
+            }
+            return;
+        }
+
+        // Accept digits/letters only
+        if (/^[0-9A-Za-z]$/.test(k)) {
+            this._scanBuf += k;
+            if (this._bufTimer) clearTimeout(this._bufTimer);
+            this._bufTimer = setTimeout(() => {
+                const code = this._normalize(this._scanBuf);
+                this._scanBuf = "";
+                if (code && code.length >= this._MIN_LEN) this._commitScan(code);
+            }, 180);
+        }
+    }
+
+    // ---------- Lookup ----------
     async _commitScan(barcode) {
         if (!barcode) return;
 
-        // Clear and refocus immediately so the next scan is ready
+        // Clear + refocus immediately for next scan
         this.state.barcode = "";
         setTimeout(() => this._focus(), 0);
 
@@ -103,10 +139,10 @@ class ProductDetailSearchDashboard extends Component {
                     currency_symbol: "$",
                 };
             } else {
-                this.state.details = null; // template shows "لم يتم العثور على منتج"
+                this.state.details = null; // template displays "لم يتم العثور على منتج"
             }
         } catch {
-            this.state.details = null; // quiet kiosk
+            this.state.details = null; // no toasts in kiosk mode
         }
     }
 }
