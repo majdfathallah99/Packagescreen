@@ -1,58 +1,72 @@
-from odoo import models, api
+/** @odoo-module **/
 
-class ProductTemplate(models.Model):
-    _inherit = "product.template"
+import { registry } from "@web/core/registry";
+const { Component, useState, onMounted, onWillUnmount } = owl;
+import { useService } from "@web/core/utils/hooks";
 
-    @api.model
-    def product_detail_search(self, *args, **kwargs):
-        """
-        Accepts multiple calling conventions:
-          - [barcode]
-          - [[], barcode] or ["", barcode]
-          - kwargs: {'barcode': '...'}
-        Returns a list with a single dict or False.
-        """
-        # Extract barcode from args/kwargs safely
-        barcode = kwargs.get("barcode")
-        if barcode is None:
-            if len(args) == 1:
-                barcode = args[0]
-            elif len(args) >= 2:
-                # First arg may be [] or "" (ignored); second is the barcode
-                barcode = args[1]
+class ProductDetailSearchDashboard extends Component {
+    setup() {
+        this.orm = useService("orm");
+        this.state = useState({ barcode: "", details: null });
+        this._typed = false;
+        this._timer = null;
+        this._DEBOUNCE = 250;
+        this._mounted = false;
 
-        if not barcode:
-            return False
+        onMounted(() => { this._mounted = true; setTimeout(() => this._focus(), 0); });
+        onWillUnmount(() => { this._mounted = false; if (this._timer) clearTimeout(this._timer); });
+    }
 
-        product = self.env["product.product"].search([("barcode", "=", barcode)], limit=1)
-        if not product:
-            return False
+    _focus() {
+        if (!this._mounted) return;
+        const el = this.el && this.el.querySelector && this.el.querySelector(".scan-input");
+        if (el) { el.focus(); el.select && el.select(); }
+    }
 
-        uom_name = product.uom_id.name or ""
-        unit_price = product.list_price or 0.0
-        currency = product.currency_id or self.env.company.currency_id
+    onProductKeypress() { this._typed = true; }
 
-        # Choose a packaging: default > qty>1 > first
-        packaging = product.packaging_ids.filtered(lambda p: getattr(p, "is_default", False))[:1]
-        if not packaging:
-            packaging = product.packaging_ids.filtered(lambda p: (p.qty or 0) > 1)[:1]
-        if not packaging:
-            packaging = product.packaging_ids[:1]
-        packaging = packaging and packaging[0] or False
+    change_product_barcode(ev) {
+        this.state.barcode = ev.target.value;
+        if (!this._typed) return;
+        if (this._timer) clearTimeout(this._timer);
+        this._timer = setTimeout(() => this.get_product(), this._DEBOUNCE);
+    }
 
-        package_qty = int(packaging.qty) if (packaging and packaging.qty) else 0
-        package_price = (unit_price * package_qty) if package_qty else 0.0
+    async get_product() {
+        const barcode = (this.state.barcode || "").replace(/\r|\n/g, "").trim();
+        if (!barcode) { this.state.details = null; return; }
 
-        symbol = (currency and currency.symbol) or ""
+        try {
+            const recs = await this.orm.searchRead(
+                "product.product",
+                [["barcode", "=", barcode]],
+                ["id", "display_name", "default_code", "list_price", "uom_id"]
+            );
 
-        return [{
-            "id": product.id,
-            "name": product.display_name,
-            "default_code": product.default_code or "",
-            "uom": uom_name,
-            "price": unit_price,
-            "package_qty": package_qty,
-            "package_price": package_price,
-            "symbol": symbol,
-            "currency_symbol": symbol,  # for templates using either key
-        }]
+            if (recs && recs.length) {
+                const p = recs[0];
+                this.state.details = {
+                    id: p.id,
+                    name: p.display_name,
+                    default_code: p.default_code || "",
+                    uom: (p.uom_id && p.uom_id[1]) || "",
+                    price: p.list_price || 0,
+                    package_qty: 0,
+                    package_price: 0,
+                    symbol: "$",            // change to company currency if you prefer
+                    currency_symbol: "$",
+                };
+            } else {
+                this.state.details = null;   // template shows "لم يتم العثور على منتج"
+            }
+        } catch (e) {
+            this.state.details = null;       // quiet kiosk: no toast spam
+        } finally {
+            this.state.barcode = "";         // ready for next scan
+            setTimeout(() => this._focus(), 0);
+        }
+    }
+}
+
+ProductDetailSearchDashboard.template = "CustomDashBoardFindProduct";
+registry.category("actions").add("product_detail_search_barcode_main_menu", ProductDetailSearchDashboard);
