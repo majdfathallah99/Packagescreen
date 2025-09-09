@@ -7,18 +7,20 @@ import { _t } from "@web/core/l10n/translation";
 
 class ProductDetailSearchDashboard extends Component {
     setup() {
+        // ✅ keep this minimal; no super needed
         this.orm = useService("orm");
         this.notification = useService("notification");
         this.state = useState({ barcode: "", details: null, history: [] });
 
         this._debounceTimer = null;
-        this._DEBOUNCE_MS = 250;   // pause between keystrokes before we treat it as a finished scan
-        this._MIN_LEN = 6;         // ignore very short inputs to reduce false calls
+        this._DEBOUNCE_MS = 250;
+        this._MIN_LEN = 6;
         this._mounted = false;
 
         onMounted(() => {
             this._mounted = true;
-            this.focusInput();
+            // ✅ defer one tick so refs are available
+            setTimeout(() => this.focusInput(), 0);
         });
         onWillUnmount(() => {
             this._mounted = false;
@@ -26,12 +28,16 @@ class ProductDetailSearchDashboard extends Component {
         });
     }
 
+    // ✅ SAFE focus that doesn’t assume refs exist yet
     focusInput() {
         if (!this._mounted) return;
-        const el = this.refs.scanInput;
+        const el = (this.refs && this.refs.scanInput)
+            ? this.refs.scanInput
+            : this.el && this.el.querySelector && this.el.querySelector(".scan-input");
         if (el) {
             el.focus();
-            el.select();
+            // scanners often send CR; selecting helps manual edits too
+            if (el.select) el.select();
         }
     }
 
@@ -57,14 +63,13 @@ class ProductDetailSearchDashboard extends Component {
     async _commitScan(barcode) {
         if (!barcode) return;
         try {
-            const res = await this.orm.call("product.template", "product_detail_search", [[], barcode]);
+            const res = await this.orm.call("product.template", "product_detail_search", [[], barcode]); // ✅ correct args
             const details = (res && res.length) ? res[0] : null;
             this.state.details = details;
 
             if (!details) {
                 this.notification.add(_t("Product not found."), { type: "warning" });
             } else {
-                // add to history (keep latest 20)
                 this.state.history.unshift({
                     ts: Date.now(),
                     name: details.name,
@@ -75,19 +80,16 @@ class ProductDetailSearchDashboard extends Component {
                 });
                 if (this.state.history.length > 20) this.state.history.pop();
             }
-        } catch (e) {
+        } catch {
             this.notification.add(_t("Error fetching product."), { type: "danger" });
             this.state.details = null;
         } finally {
-            // prepare for next scan: clear & refocus (so user never has to delete)
+            // prepare for the next scan
             this.state.barcode = "";
-            this.focusInput();
+            // ✅ defer focus again after DOM patch
+            setTimeout(() => this.focusInput(), 0);
         }
     }
 }
-
 ProductDetailSearchDashboard.template = "CustomDashBoardFindProduct";
-registry.category("actions").add(
-    "product_detail_search_barcode_main_menu",
-    ProductDetailSearchDashboard
-);
+registry.category("actions").add("product_detail_search_barcode_main_menu", ProductDetailSearchDashboard);
