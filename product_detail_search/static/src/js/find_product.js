@@ -20,7 +20,7 @@ export class FindProductScreen extends Component {
 
     async _barcodeProductAction(code) {
         var self = this;
-        await this.orm.call("product.template", "product_detail_search", ["", code.base_code]).then(function(result) {
+        await this.orm.call("product.template", "product_detail_search", [code.base_code]).then(function(result) {
             if (result == false) {
                 self.pos.showScreen('ProductDetails', {
                     'product_details': false,
