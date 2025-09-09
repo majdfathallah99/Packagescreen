@@ -56,7 +56,8 @@ class ProductDetailSearchDashboard extends Component {
     }
     _normalize(v) {
         let s = String(v || "").replace(/[\r\n\t]+/g, "").trim();
-        if (s && /^[A-Za-z]$/.test(s[0])) s = s.slice(1); // strip stray leading letter from some scanners
+        // Some USB scanners prepend a stray letter; keep this guard but it won't break normal barcodes
+        if (s && /^[A-Za-z]$/.test(s[0])) s = s.slice(1);
         return s;
     }
 
@@ -111,7 +112,7 @@ class ProductDetailSearchDashboard extends Component {
         }
     }
 
-    // ---------- Lookup ----------
+    // ---------- Lookup (supports product + packaging barcodes) ----------
     async _commitScan(barcode) {
         if (!barcode) return;
 
@@ -120,29 +121,35 @@ class ProductDetailSearchDashboard extends Component {
         setTimeout(() => this._focus(), 0);
 
         try {
-            const recs = await this.orm.searchRead(
-                "product.product",
-                [["barcode", "=", barcode]],
-                ["id", "display_name", "default_code", "list_price", "uom_id"]
+            // Call server method that checks product.barcode, then product.packaging.barcode
+            const out = await this.orm.call(
+                "product.template",
+                "product_detail_search",
+                [barcode]
             );
-            if (recs && recs.length) {
-                const p = recs[0];
+
+            const d = (out && out[0]) || null;
+
+            if (d) {
+                // Normalize keys so templates can use either symbol or currency_symbol
                 this.state.details = {
-                    id: p.id,
-                    name: p.display_name,
-                    default_code: p.default_code || "",
-                    uom: (p.uom_id && p.uom_id[1]) || "",
-                    price: p.list_price || 0,
-                    package_qty: 0,
-                    package_price: 0,
-                    symbol: "$",
-                    currency_symbol: "$",
+                    id: d.id,
+                    name: d.name,
+                    default_code: d.default_code || "",
+                    uom: d.uom || "",
+                    price: d.price || 0,
+                    package_qty: d.package_qty || 0,
+                    package_price: d.package_price || 0,
+                    currency_symbol: d.currency_symbol || "$",
+                    symbol: d.currency_symbol || "$",
+                    scanned_as: d.scanned_as || "product",
+                    scanned_barcode: d.scanned_barcode || barcode,
                 };
             } else {
                 this.state.details = null; // template displays "لم يتم العثور على منتج"
             }
         } catch {
-            this.state.details = null; // no toasts in kiosk mode
+            this.state.details = null; // stay quiet in kiosk mode
         }
     }
 }
