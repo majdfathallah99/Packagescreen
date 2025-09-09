@@ -10,39 +10,52 @@ export class ProductDetails extends Component {
     static template = "product_detail_search.ProductDetails";
 
     setup() {
-        super.setup();
         this.pos = usePos();
         this.orm = useService("orm");
 
         useBarcodeReader({
-            product: this._barcodeProductAction,
+            product: (code) => this._onScanAgain(code),
+            any:     (code) => this._onScanAgain(code),
         });
+    }
 
-        if (this.props.product_details == false) {
-            this.product_details = false;
-        } else {
-            this.product_details = this.props.product_details;
+    async _onScanAgain(code) {
+        const barcode = String(code?.base_code || "").trim();
+        if (!barcode) return;
+
+        try {
+            const recs = await this.orm.searchRead(
+                "product.product",
+                [["barcode", "=", barcode]],
+                ["id", "display_name", "default_code", "list_price", "uom_id"]
+            );
+
+            if (!recs || !recs.length) {
+                this.pos.showScreen("ProductDetails", { product_details: false });
+                return;
+            }
+
+            const p = recs[0];
+            const details = [{
+                id: p.id,
+                name: p.display_name,
+                default_code: p.default_code || "",
+                uom: (p.uom_id && p.uom_id[1]) || "",
+                price: p.list_price || 0,
+                package_qty: 0,
+                package_price: 0,
+                symbol: (this.pos.currency && this.pos.currency.symbol) || "$",
+                currency_symbol: (this.pos.currency && this.pos.currency.symbol) || "$",
+            }];
+
+            this.pos.showScreen("ProductDetails", { product_details: details });
+        } catch (e) {
+            this.pos.showScreen("ProductDetails", { product_details: false });
         }
     }
 
-    _barcodeProductAction(code) {
-        var self = this;
-        this.orm.call("product.template", "product_detail_search", [code.base_code]).then(function(result) {
-            if (result == false) {
-                self.pos.showScreen('ProductDetails', {
-                    'product_details': false,
-                });
-            } else {
-                self.product_details = result;
-                self.pos.showScreen('ProductDetails', {
-                    'product_details': self.product_details,
-                });
-            }
-        });
-    }
-
     back() {
-        this.pos.showScreen('FindProductScreen');
+        this.pos.showScreen("FindProductScreen");
     }
 }
 
