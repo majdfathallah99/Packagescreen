@@ -61,8 +61,17 @@ export class FindProductScreen extends Component {
     }
 }
 
-// ❗ Guarded registration to avoid "already exists" crash
-const screens1 = registry.category("pos_screens");
-if (!screens1.get("FindProductScreen")) {
-    screens1.add("FindProductScreen", FindProductScreen);
+// ---- SAFE REGISTRATION (avoids "already exists" crash)
+{
+    const posScreens = registry.category("pos_screens");
+    let exists = false;
+    try {
+        if (posScreens.get) exists = !!posScreens.get("FindProductScreen");
+        else if (posScreens.contains) exists = posScreens.contains("FindProductScreen");
+    } catch (_) { /* ignore */ }
+
+    if (!exists) {
+        try { posScreens.add("FindProductScreen", FindProductScreen); }
+        catch (_) { /* ignore duplicate key thrown by Odoo registry */ }
+    }
 }
