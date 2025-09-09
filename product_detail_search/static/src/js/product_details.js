@@ -70,8 +70,17 @@ export class ProductDetails extends Component {
     }
 }
 
-// ❗ Guarded registration to avoid "already exists" crash
-const screens2 = registry.category("pos_screens");
-if (!screens2.get("ProductDetails")) {
-    screens2.add("ProductDetails", ProductDetails);
+// ---- SAFE REGISTRATION (avoids "already exists" crash)
+{
+    const posScreens = registry.category("pos_screens");
+    let exists = false;
+    try {
+        if (posScreens.get) exists = !!posScreens.get("ProductDetails");
+        else if (posScreens.contains) exists = posScreens.contains("ProductDetails");
+    } catch (_) { /* ignore */ }
+
+    if (!exists) {
+        try { posScreens.add("ProductDetails", ProductDetails); }
+        catch (_) { /* ignore duplicate key */ }
+    }
 }
