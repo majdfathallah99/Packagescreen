@@ -1,7 +1,7 @@
 /** @odoo-module **/
 
 import { registry } from "@web/core/registry";
-const { Component, useState, onMounted, onWillUnmount } = owl;
+const { Component, useState, onMounted, onWillUnmount, onPatched } = owl;
 import { useService } from "@web/core/utils/hooks";
 
 class ProductDetailSearchDashboard extends Component {
@@ -10,29 +10,47 @@ class ProductDetailSearchDashboard extends Component {
         this.state = useState({ barcode: "", details: null });
 
         this._timer = null;
-        this._DEBOUNCE_MS = 220;   // treat scanner burst as one input
+        this._DEBOUNCE_MS = 220;
         this._MIN_LEN = 2;
         this._mounted = false;
 
-        onMounted(() => { this._mounted = true; setTimeout(() => this._focus(), 0); });
-        onWillUnmount(() => { this._mounted = false; if (this._timer) clearTimeout(this._timer); });
+        onMounted(() => {
+            this._mounted = true;
+            // focus ASAP and on the next ticks to beat any late layout
+            this._focus();
+            setTimeout(() => this._focus(), 0);
+            setTimeout(() => this._focus(), 120);
+            requestAnimationFrame(() => this._focus());
+        });
+        onPatched(() => {
+            // if anything re-rendered (e.g., details appear), keep the input focused
+            this._focus();
+        });
+        onWillUnmount(() => {
+            this._mounted = false;
+            if (this._timer) clearTimeout(this._timer);
+        });
     }
 
     _focus() {
         if (!this._mounted) return;
-        const el = this.el?.querySelector?.(".scan-input");
-        if (el) { el.focus(); el.select?.(); }
+        const el = (this.refs && this.refs.scanInput)
+            ? this.refs.scanInput
+            : this.el?.querySelector?.(".scan-input");
+        if (el && document.activeElement !== el) {
+            el.focus();
+            el.select?.();
+        }
     }
 
     _normalize(v) {
         let s = String(v || "").replace(/[\r\n\t]+/g, "").trim();
-        // Some keyboard-wedge scanners prepend a letter (e.g., "k123..."): strip 1st non-alnum if present
-        if (s && /[^0-9A-Za-z]/.test(s[0])) s = s.slice(1);
+        // Strip a leading stray letter some scanners add (e.g., "k123...")
         if (s && /^[A-Za-z]$/.test(s[0])) s = s.slice(1);
         return s;
     }
 
-    // --- Handlers used by your XML (support both styles)
+    // Handlers used by the template (support both styles)
     onKeyDown(ev) {
         if (ev.key === "Enter") {
             ev.preventDefault();
@@ -61,7 +79,7 @@ class ProductDetailSearchDashboard extends Component {
     async _commitScan(barcode) {
         if (!barcode) return;
 
-        // Clear field *before* RPC so the next scan starts fresh
+        // Clear and refocus immediately so the next scan is ready
         this.state.barcode = "";
         setTimeout(() => this._focus(), 0);
 
@@ -71,7 +89,6 @@ class ProductDetailSearchDashboard extends Component {
                 [["barcode", "=", barcode]],
                 ["id", "display_name", "default_code", "list_price", "uom_id"]
             );
-
             if (recs && recs.length) {
                 const p = recs[0];
                 this.state.details = {
@@ -80,18 +97,16 @@ class ProductDetailSearchDashboard extends Component {
                     default_code: p.default_code || "",
                     uom: (p.uom_id && p.uom_id[1]) || "",
                     price: p.list_price || 0,
-                    // kiosk placeholders (no packaging logic here)
                     package_qty: 0,
                     package_price: 0,
-                    symbol: "$",           // change to company currency if you want
+                    symbol: "$",
                     currency_symbol: "$",
                 };
             } else {
-                this.state.details = null; // your template shows "لم يتم العثور على منتج"
+                this.state.details = null; // template shows "لم يتم العثور على منتج"
             }
         } catch {
-            // Quiet kiosk: no toast spam on errors
-            this.state.details = null;
+            this.state.details = null; // quiet kiosk
         }
     }
 }
