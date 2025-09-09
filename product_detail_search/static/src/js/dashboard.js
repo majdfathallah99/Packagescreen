@@ -69,7 +69,7 @@ class ProductDetailSearchDashboard extends Component {
             const res = await this.orm.call(
                 "product.template",
                 "product_detail_search",
-                [[], barcode]
+                [barcode]
             );
             details = (res && res.length) ? res[0] : null;
         } catch (e) {
