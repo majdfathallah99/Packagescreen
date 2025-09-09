@@ -1,9 +1,10 @@
 from odoo import models, api
+import logging
+_logger = logging.getLogger(__name__)
 
 class ProductTemplate(models.Model):
     _inherit = "product.template"
 
-    # optional (keeps Arabic-Indic digits safe)
     def _sanitize_code(self, code):
         s = (code or "").strip()
         trans = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
@@ -12,21 +13,29 @@ class ProductTemplate(models.Model):
     @api.model
     def product_detail_search(self, barcode):
         Product   = self.env["product.product"]
+        Template  = self.env["product.template"]
         Packaging = self.env["product.packaging"]
 
         code = self._sanitize_code(barcode)
 
-        # ► FIRST: match product by variant barcode OR template barcode (and default_code as a helpful fallback)
-        product = Product.search([
-            "|", "|",
-            ("barcode", "=", code),                    # variant barcode
-            ("product_tmpl_id.barcode", "=", code),    # template barcode
-            ("default_code", "=", code),               # optional: internal reference
-        ], limit=1)
-
+        product = False
         packaging = False
 
-        # ► THEN: if no product match, try packaging barcode
+        # 1) Variant barcode
+        product = Product.search([("barcode", "=", code)], limit=1)
+
+        # 2) Template barcode
+        if not product:
+            tmpl = Template.search([("barcode", "=", code)], limit=1)
+            if tmpl:
+                product = tmpl.product_variant_id or \
+                          Product.search([("product_tmpl_id", "=", tmpl.id)], limit=1)
+
+        # 3) (Optional) internal reference fallback
+        if not product:
+            product = Product.search([("default_code", "=", code)], limit=1)
+
+        # 4) Packaging barcode
         if not product:
             packaging = Packaging.search([("barcode", "=", code)], limit=1)
             if packaging:
@@ -48,6 +57,7 @@ class ProductTemplate(models.Model):
 
         package_qty = _pack_qty(packaging) if packaging else 0
         if not package_qty:
+            # show a default sales packaging if present
             pk = Packaging.search([
                 "|", ("product_id", "=", product.id),
                      ("product_tmpl_id", "=", product.product_tmpl_id.id),
