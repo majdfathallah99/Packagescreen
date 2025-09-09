@@ -13,46 +13,55 @@
     <div class="pds rtl">
       <div class="scan">
         <input class="scan-input"
+               t-ref="scanInput"
                t-att-value="state.barcode"
-               t-on-keypress="onProductKeypress"
-               t-on-input="change_product_barcode"
+               t-on-keydown="onKeyDown"
+               t-on-input="onInput"
                placeholder="امسح أو اكتب الباركود / Scan or type barcode"/>
       </div>
 
-      <t t-if="state.details" t-set="d" t-value="state.details"/>
-      <t t-if="state.details">
+      <!-- Current product tiles (your existing section) -->
+      <t t-set="d" t-value="state.details"/>
+      <t t-if="d">
         <div class="head">
           <img class="logo" src="/product_detail_search/static/description/icon.png"/>
           <div class="name"><t t-esc="d.name"/></div>
         </div>
 
-        <div class="tiles">
-          <div class="tile">
-            <div class="tile-header tile-orange"><t t-esc="_t('عبوة')"/></div>
-            <!-- unary + to coerce, then keep 3 decimals -->
-            <div class="tile-value"><t t-esc="((+d.package_price) || 0).toFixed(3)"/></div>
-            <t t-if="d.package_qty">
-              <div class="tile-sub">
-                <t t-esc="d.currency_symbol"/> - <t t-esc="d.package_qty"/> x <t t-esc="d.uom"/>
-              </div>
-            </t>
-            <t t-if="!d.package_qty">
-              <div class="tile-sub"><t t-esc="_t('لا توجد عبوة')"/></div>
-            </t>
+        <div class="cards">
+          <div class="tile piece">
+            <div class="tile-title"><t t-esc="_t('قطعة')"/></div>
+            <div class="tile-value"><t t-esc="((+ (d.price || d.list_price) ) || 0).toFixed(3)"/></div>
+            <div class="tile-sub"><t t-esc="(d.symbol || d.currency_symbol || '')"/> - <t t-esc="d.uom"/></div>
           </div>
-
-          <div class="tile">
-            <div class="tile-header tile-blue"><t t-esc="_t('قطعة')"/></div>
-            <!-- unary + to coerce, then keep 3 decimals -->
-            <div class="tile-value"><t t-esc="((+d.price) || 0).toFixed(3)"/></div>
-            <div class="tile-sub"><t t-esc="d.currency_symbol"/> - <t t-esc="d.uom"/></div>
+          <div class="tile pack">
+            <div class="tile-title"><t t-esc="_t('عبوة')"/></div>
+            <div class="tile-value"><t t-esc="((+ (d.package_price || 0) ) || 0).toFixed(3)"/></div>
+            <div class="tile-sub">
+              <t t-esc="d.package_qty ? (d.package_qty + ' × ' + (d.uom || '')) : _t('لا توجد عبوة')"/>
+            </div>
           </div>
         </div>
       </t>
 
-      <!-- escape && for XML -->
       <t t-if="state.details === null &amp;&amp; state.barcode">
         <div class="not-found"><t t-esc="_t('لم يتم العثور على منتج')"/></div>
+      </t>
+
+      <!-- Simple scan history -->
+      <t t-if="state.history and state.history.length">
+        <div class="history" style="margin-top: 24px;">
+          <h3 style="margin-bottom: 8px;"><t t-esc="_t('آخر عمليات المسح')"/></h3>
+          <ul style="list-style:none; padding:0; margin:0;">
+            <t t-foreach="state.history" t-as="h" t-key="h.ts">
+              <li style="padding:6px 0; border-bottom:1px solid #eee;">
+                <span style="font-weight:600;"><t t-esc="h.name or '-'"/></span>
+                <span style="opacity:.7;">(<t t-esc="h.barcode"/>)</span>
+                <span> — <t t-esc="((+ (h.price || 0)) || 0).toFixed(3)"/> <t t-esc="h.symbol"/>/<t t-esc="h.uom or ''"/></span>
+              </li>
+            </t>
+          </ul>
+        </div>
       </t>
     </div>
   </t>
