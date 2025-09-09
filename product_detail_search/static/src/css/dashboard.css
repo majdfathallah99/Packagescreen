@@ -31,7 +31,7 @@
 /* >>> HUGE name <<< */
 .pds .head .name{
   margin-top: 10px;
-  font-size: 48px;       /* was 36px */
+  font-size: 200px;       /* was 36px */
   line-height: 1.12;
   font-weight: 900;
   letter-spacing: .2px;
