@@ -3,41 +3,35 @@ from odoo import models, api
 class ProductTemplate(models.Model):
     _inherit = "product.template"
 
+    # optional (keeps Arabic-Indic digits safe)
+    def _sanitize_code(self, code):
+        s = (code or "").strip()
+        trans = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+        return s.translate(trans)
+
     @api.model
     def product_detail_search(self, barcode):
-        """Find by variant barcode, then template barcode, then packaging barcode.
-        Returns one dict with unit + pack info for the chosen product.
-        """
-        Product = self.env["product.product"]
-        Template = self.env["product.template"]
+        Product   = self.env["product.product"]
         Packaging = self.env["product.packaging"]
 
-        product = False
+        code = self._sanitize_code(barcode)
+
+        # ► FIRST: match product by variant barcode OR template barcode (and default_code as a helpful fallback)
+        product = Product.search([
+            "|", "|",
+            ("barcode", "=", code),                    # variant barcode
+            ("product_tmpl_id.barcode", "=", code),    # template barcode
+            ("default_code", "=", code),               # optional: internal reference
+        ], limit=1)
+
         packaging = False
 
-        # 1) Variant barcode
-        product = Product.search([("barcode", "=", barcode)], limit=1)
-
-        # 2) Template barcode (if variant has no barcode but template does)
+        # ► THEN: if no product match, try packaging barcode
         if not product:
-            tmpl = Template.search([("barcode", "=", barcode)], limit=1)
-            if tmpl:
-                # prefer the main variant
-                product = tmpl.product_variant_id or Product.search(
-                    [("product_tmpl_id", "=", tmpl.id)], limit=1
-                )
-
-        # 3) Packaging barcode
-        if not product:
-            packaging = Packaging.search([("barcode", "=", barcode)], limit=1)
+            packaging = Packaging.search([("barcode", "=", code)], limit=1)
             if packaging:
-                product = packaging.product_id or (
-                    packaging.product_tmpl_id
-                    and Product.search(
-                        [("product_tmpl_id", "=", packaging.product_tmpl_id.id)],
-                        limit=1,
-                    )
-                )
+                product = packaging.product_id or \
+                          Product.search([("product_tmpl_id", "=", packaging.product_tmpl_id.id)], limit=1)
 
         if not product:
             return False
@@ -46,7 +40,6 @@ class ProductTemplate(models.Model):
         def _pack_qty(pk):
             if not pk:
                 return 0
-            # tolerate field name differences
             if "qty" in Packaging._fields:
                 return int(pk.qty or 0)
             if "contained_quantity" in Packaging._fields:
@@ -55,7 +48,6 @@ class ProductTemplate(models.Model):
 
         package_qty = _pack_qty(packaging) if packaging else 0
         if not package_qty:
-            # show a default sales packaging if present
             pk = Packaging.search([
                 "|", ("product_id", "=", product.id),
                      ("product_tmpl_id", "=", product.product_tmpl_id.id),
@@ -63,9 +55,9 @@ class ProductTemplate(models.Model):
             ], limit=1)
             package_qty = _pack_qty(pk)
 
-        unit_price = product.list_price or 0.0
+        unit_price    = product.list_price or 0.0
         package_price = unit_price * package_qty if package_qty else 0.0
-        currency = self.env.company.currency_id
+        currency      = self.env.company.currency_id
 
         return [{
             "id": product.id,
@@ -77,5 +69,5 @@ class ProductTemplate(models.Model):
             "package_price": package_price,
             "currency_symbol": (currency and currency.symbol) or "",
             "scanned_as": "packaging" if packaging else "product",
-            "scanned_barcode": barcode,
+            "scanned_barcode": code,
         }]
