@@ -16,6 +16,8 @@ class ProductDetailSearchDashboard extends Component {
         this._DEBOUNCE_MS = 250;
         this._MIN_LEN = 6;
         this._mounted = false;
+        this._t = _t;  
+
 
         onMounted(() => {
             this._mounted = true;
