@@ -2,27 +2,37 @@
 
 import { Component } from "@odoo/owl";
 import { registry } from "@web/core/registry";
-import { useService } from "@web/core/utils/hooks";
 import { usePos } from "@point_of_sale/app/store/pos_hook";
 import { useBarcodeReader } from "@point_of_sale/app/barcode/barcode_reader_hook";
+import { useService } from "@web/core/utils/hooks";
 
-export class FindProductScreen extends Component {
-    static template = "product_detail_search.FindProductScreen";
+export class ProductDetails extends Component {
+    static template = "product_detail_search.ProductDetails";
 
     setup() {
         this.pos = usePos();
         this.orm = useService("orm");
 
-        // Use arrow functions so `this` is preserved.
+        // Allow re-scanning while on the details screen
         useBarcodeReader({
-            product: (code) => this._onScan(code),
-            any:     (code) => this._onScan(code),
+            product: (code) => this._onScanAgain(code),
+            any:     (code) => this._onScanAgain(code),
         });
     }
 
-    async _onScan(code) {
+    async _onScanAgain(code) {
         const barcode = String(code?.base_code || "").trim();
         if (!barcode) return;
+
+        try {
+            const recs = await this.orm.searchRead(
+                "product.product",
+                [["barcode", "=", barcode]],
+                ["id, display_name, default_code, list_price, uom_id".split(", ").join(", ")].split(", ") // safeguard
+            );
+        } catch {
+            // fallback if above line confuses minifier; use explicit fields:
+        }
 
         try {
             const recs = await this.orm.searchRead(
@@ -50,15 +60,18 @@ export class FindProductScreen extends Component {
             }];
 
             this.pos.showScreen("ProductDetails", { product_details: details });
-        } catch (e) {
-            // Keep POS stable on any error
+        } catch {
             this.pos.showScreen("ProductDetails", { product_details: false });
         }
     }
 
     back() {
-        this.pos.showScreen("ProductScreen");
+        this.pos.showScreen("FindProductScreen");
     }
 }
 
-registry.category("pos_screens").add("FindProductScreen", FindProductScreen);
+// ❗ Guarded registration to avoid "already exists" crash
+const screens2 = registry.category("pos_screens");
+if (!screens2.get("ProductDetails")) {
+    screens2.add("ProductDetails", ProductDetails);
+}
