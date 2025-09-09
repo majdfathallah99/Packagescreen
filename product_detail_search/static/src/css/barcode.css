@@ -1,90 +1,61 @@
-.barcode_inventory{
-justify-content:center;
-}
-.barcode_inventory  header h2{
-width: 50%;
-text-align:right;
-padding-right:27px;
-    float: left;
-    }
-.barcode_inventory  header #barcode{
-    float: left;
-    width: 40%;
-}
-.barcode_screen{
-margin-top: 80px;
-}
-.barcode_screen h1{
-margin: 29px 0px;
-text-align: center;
-}
-.barcode_scan{
-display: flex;
-    justify-content: left;
-    margin-top: 31px;
+/* ---------- Layout & RTL ---------- */
+.pds { padding: 36px 12px; display: flex; flex-direction: column; align-items: center; }
+.pds.rtl { direction: rtl; }
 
+/* ---------- Search pill (bigger) ---------- */
+.pds .scan { margin: 10px 0 24px; }
+.pds .scan-input{
+  width: 760px; max-width: 96vw; height: 64px;
+  border: 3px solid #111; border-radius: 18px;
+  padding: 10px 20px; font-size: 20px; text-align: center; outline: none;
+  background: #fff;
 }
-.container_product_info{
-align-items: center;
-    display: flex;
-    width: 100%;
-    justify-content: center;
+.pds .scan-input::placeholder{ opacity:.7; }
+.pds .scan-input:focus{ box-shadow: 0 0 0 4px rgba(17,17,17,.07); }
+
+/* ---------- Header: round icon + product name (bigger) ---------- */
+.pds .head{ display:flex; flex-direction:column; align-items:center; margin: 10px 0 16px; }
+.pds .head .logo{
+  width: 84px; height: 84px; border-radius: 999px;
+  background:#f4f5f7; padding:14px; object-fit:contain;
+  box-shadow: 0 2px 4px rgba(0,0,0,.08);
 }
-.category-img{
-margin-right:21px;
-background-color: #f7f7f7;
-    height: 377px;
-    display: flex;
+.pds .head .name{ margin-top: 10px; font-size: 26px; font-weight: 700; color:#2b2b2b; }
+
+/* ---------- Cards row (spacious) ---------- */
+.pds .cards{ display:flex; gap:28px; flex-wrap:wrap; justify-content:center; }
+
+/* ---------- Card (bigger) ---------- */
+.pds .tile{
+  width: 520px; max-width: 96vw;
+  border-radius: 16px; background:#fff; overflow:hidden;
+  box-shadow: 0 10px 26px rgba(20,20,20,.08);
 }
-.category-img img{
-width:300px;
-height:300px;
-object-fit: cover;
+.pds .tile .tile-title{
+  text-align:center; font-weight:800; color:#fff; padding:14px 16px; font-size:20px;
 }
-.
-.clientlist-screen h1 {
-      text-align: center;
-    }
+.pds .tile.piece .tile-title{ background:#1f5bd3; }   /* blue */
+.pds .tile.pack  .tile-title{ background:#d46a1f; }   /* orange */
 
-    .clientlist-screen img {
-      display: block;
-      margin: 0 auto;
-      max-width: 300px;
-      height: auto;
-      margin-bottom: 20px;
-    }
+.pds .tile .tile-value{
+  text-align:center; font-size:72px; line-height:1.08;
+  font-weight:900; letter-spacing:.6px; padding:24px 18px 8px; color:#222;
+}
+.pds .tile .tile-sub{
+  text-align:center; color:#8a8a8a; padding:0 18px 22px; font-size:18px;
+}
 
-    .clientlist-screen table {
-      width: 100%;
-      border-collapse: collapse;
-    }
+/* ---------- Not found text (clearer) ---------- */
+.pds .not-found{ margin-top:16px; font-size:20px; color:#b33; }
 
-    .clientlist-screen td.label {
-      font-weight: bold;
-      width: 200px;
-      padding: 10px;
-      vertical-align: top;
-    }
-
-    .clientlist-screen td.value {
-      padding: 10px;
-      vertical-align: top;
-      max-width: 300px;
-    }
-
-    @media (max-width: 600px) {
-      /* Responsive styles */
-      .clientlist-screen td.label {
-        width: 100%;
-        text-align: left;
-      }
-.container_product_info{
-      max-width: 90%;
-      flex-direction: column;
-      }
-
-      .clientlist-screen td.value {
-        width: 100%;
-        text-align: left;
-      }
-    }
+/* ---------- Responsive (phones/tablets) ---------- */
+@media (max-width: 1024px){
+  .pds .scan-input{ width: 92vw; height: 58px; font-size:18px; }
+  .pds .head .logo{ width:72px; height:72px; }
+  .pds .head .name{ font-size:22px; }
+  .pds .tile{ width: 92vw; }
+  .pds .tile .tile-value{ font-size:60px; }
+  .pds .tile .tile-sub{ font-size:16px; }
+}
+@media (max-width: 480px){
+  .pds .tile .tile-value{ font-size:48px;
