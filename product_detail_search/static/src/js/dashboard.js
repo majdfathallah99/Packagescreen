@@ -9,13 +9,13 @@ class ProductDetailSearchDashboard extends Component {
     setup() {
         this.orm = useService("orm");
         this.notification = useService("notification");
-        this._t = _t; // expose to template
+        this._t = _t;
 
         this.state = useState({ barcode: "", details: null });
 
         this._debounceTimer = null;
-        this._DEBOUNCE_MS = 250;   // wait for scanner to finish
-        this._MIN_LEN = 6;         // ignore very short codes
+        this._DEBOUNCE_MS = 250;
+        this._MIN_LEN = 6;
         this._mounted = false;
 
         onMounted(() => {
@@ -60,23 +60,72 @@ class ProductDetailSearchDashboard extends Component {
 
     async _commitScan(barcode) {
         if (!barcode) return;
-        try {
-            const res = await this.orm.call("product.template", "product_detail_search", [[], barcode]);
-            const details = (res && res.length) ? res[0] : null;
-            this.state.details = details;
 
-            if (!details) {
-                this.notification.add(this._t("Product not found."), { type: "warning" });
-            }
-        } catch {
-            this.notification.add(this._t("Error fetching product."), { type: "danger" });
-            this.state.details = null;
-        } finally {
-            this.state.barcode = "";
-            setTimeout(() => this.focusInput(), 0);
+        let details = null;
+        let hadRpcFailure = false;
+
+        // 1) Preferred: call server helper
+        try {
+            const res = await this.orm.call(
+                "product.template",
+                "product_detail_search",
+                [[], barcode]
+            );
+            details = (res && res.length) ? res[0] : null;
+        } catch (e) {
+            hadRpcFailure = true;
+            // console.error("RPC product_detail_search failed:", e);
         }
+
+        // 2) Fallback: plain search_read on product.product
+        if (!details) {
+            try {
+                const recs = await this.orm.searchRead(
+                    "product.product",
+                    [["barcode", "=", barcode]],
+                    ["id", "display_name", "default_code", "list_price", "uom_id"]
+                );
+                if (recs && recs.length) {
+                    const p = recs[0];
+                    details = {
+                        id: p.id,
+                        name: p.display_name,
+                        default_code: p.default_code || "",
+                        uom: (p.uom_id && p.uom_id[1]) || "",
+                        price: p.list_price || 0,
+                        // Fallback has no packaging computation:
+                        package_qty: 0,
+                        package_price: 0,
+                        // We purposely don’t depend on company currency here; UI shows $ per your mock.
+                        symbol: "$",
+                        currency_symbol: "$",
+                    };
+                }
+            } catch (e2) {
+                // console.error("Fallback search_read failed:", e2);
+                // Only show a toast if both attempts failed completely
+                if (hadRpcFailure) {
+                    this.notification.add(this._t("Error fetching product."), { type: "danger" });
+                }
+            }
+        }
+
+        // 3) Render or warn (single toast)
+        if (!details) {
+            this.state.details = null;
+            this.notification.add(this._t("Product not found."), { type: "warning" });
+        } else {
+            this.state.details = details;
+        }
+
+        // 4) Prepare for next scan
+        this.state.barcode = "";
+        setTimeout(() => this.focusInput(), 0);
     }
 }
 
 ProductDetailSearchDashboard.template = "CustomDashBoardFindProduct";
-registry.category("actions").add("product_detail_search_barcode_main_menu", ProductDetailSearchDashboard);
+registry.category("actions").add(
+    "product_detail_search_barcode_main_menu",
+    ProductDetailSearchDashboard
+);
