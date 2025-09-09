@@ -38,7 +38,7 @@
     'website': "https://www.cybrosys.com",
     'depends': ['point_of_sale', 'stock'],
     'data': [
-        'views/stock_views.xml'
+        'views/stock_views.xml' ,
         'views/app_menu.xml'
     ],
     'images': [
