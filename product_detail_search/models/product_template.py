@@ -1,52 +1,24 @@
-# -*- coding: utf-8 -*-
-#############################################################################
-#
-#    Cybrosys Technologies Pvt. Ltd.
-#
-#    Copyright (C) 2024-TODAY Cybrosys Technologies(<https://www.cybrosys.com>)
-#    Author: Cybrosys Techno Solutions (odoo@cybrosys.com)
-#
-#    You can modify it under the terms of the GNU LESSER
-#    GENERAL PUBLIC LICENSE (LGPL v3), Version 3.
-#
-#    This program is distributed in the hope that it will be useful,
-#    but WITHOUT ANY WARRANTY; without even the implied warranty of
-#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#    GNU LESSER GENERAL PUBLIC LICENSE (LGPL v3) for more details.
-#
-#    You should have received a copy of the GNU LESSER GENERAL PUBLIC LICENSE
-#    (LGPL v3) along with this program.
-#    If not, see <http://www.gnu.org/licenses/>.
-#
-#############################################################################
-from odoo import models, _
-
+from odoo import models, api
 
 class ProductTemplate(models.Model):
-    """Inheriting product.template to add product_detail_search method"""
-    _inherit = 'product.template'
+    _inherit = "product.template"
 
-    def get_selection_label(self, object, field_name, field_value):
-        return _(dict(
-            self.env[object].fields_get(allfields=[field_name])[field_name]['selection']
-        )[field_value])
-
+    @api.model
     def product_detail_search(self, barcode):
-        """Find by barcode and return ONLY: name, uom, price, package qty, package price."""
+        """Find by barcode and return data for the kiosk dashboard."""
         product = self.env['product.product'].search([('barcode', '=', barcode)], limit=1)
         if not product:
             return False
 
-        # Unit data
         uom_name = product.uom_id.name or ""
-        unit_price = product.list_price or 0.0  # sales price
-        currency = product.currency_id
+        unit_price = product.list_price or 0.0
+        currency = product.currency_id or self.env.company.currency_id
 
-        # Choose a packaging: prefer default, else first with qty>1, else first available
+        # pick packaging (default > qty>1 > first)
         packaging = product.packaging_ids.filtered(lambda p: getattr(p, "is_default", False))[:1]
         if not packaging:
             packaging = product.packaging_ids.filtered(lambda p: (p.qty or 0) > 1)[:1]
-        if not packaging and product.packaging_ids:
+        if not packaging:
             packaging = product.packaging_ids[:1]
         packaging = packaging and packaging[0] or False
 
@@ -56,9 +28,11 @@ class ProductTemplate(models.Model):
         return [{
             'id': product.id,
             'name': product.display_name,
+            'default_code': product.default_code or "",
             'uom': uom_name,
             'price': unit_price,
-            'package_qty': package_qty,        # e.g. 10
-            'package_price': package_price,    # e.g. 100 (= price * qty)
-            'currency_symbol': currency.symbol or '',
+            'package_qty': package_qty,
+            'package_price': package_price,
+            'symbol': (currency and currency.symbol) or "",
+            'currency_symbol': (currency and currency.symbol) or "",
         }]
