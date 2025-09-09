@@ -9,10 +9,9 @@ class ProductDetailSearchDashboard extends Component {
         this.orm = useService("orm");
         this.state = useState({ barcode: "", details: null });
 
-        // timings
-        this._DEBOUNCE_MS = 250;
-        this._MIN_LEN = 2;
         this._timer = null;
+        this._DEBOUNCE_MS = 220;   // treat scanner burst as one input
+        this._MIN_LEN = 2;
         this._mounted = false;
 
         onMounted(() => { this._mounted = true; setTimeout(() => this._focus(), 0); });
@@ -24,9 +23,16 @@ class ProductDetailSearchDashboard extends Component {
         const el = this.el?.querySelector?.(".scan-input");
         if (el) { el.focus(); el.select?.(); }
     }
-    _normalize(v) { return String(v || "").replace(/\r|\n/g, "").trim(); }
 
-    // ---- New handlers (for XML using onKeyDown/onInput)
+    _normalize(v) {
+        let s = String(v || "").replace(/[\r\n\t]+/g, "").trim();
+        // Some keyboard-wedge scanners prepend a letter (e.g., "k123..."): strip 1st non-alnum if present
+        if (s && /[^0-9A-Za-z]/.test(s[0])) s = s.slice(1);
+        if (s && /^[A-Za-z]$/.test(s[0])) s = s.slice(1);
+        return s;
+    }
+
+    // --- Handlers used by your XML (support both styles)
     onKeyDown(ev) {
         if (ev.key === "Enter") {
             ev.preventDefault();
@@ -38,9 +44,7 @@ class ProductDetailSearchDashboard extends Component {
         this.state.barcode = ev.target.value;
         this._debounceCommit();
     }
-
-    // ---- Back-compat handlers (for XML using onProductKeypress/change_product_barcode)
-    onProductKeypress() { /* no-op: kept for legacy XML */ }
+    onProductKeypress() { /* legacy no-op */ }
     change_product_barcode(ev) {
         this.state.barcode = ev.target.value;
         this._debounceCommit();
@@ -50,20 +54,24 @@ class ProductDetailSearchDashboard extends Component {
         if (this._timer) clearTimeout(this._timer);
         this._timer = setTimeout(() => {
             const code = this._normalize(this.state.barcode);
-            if (code && code.length >= this._MIN_LEN) {
-                this._commitScan(code);
-            }
+            if (code && code.length >= this._MIN_LEN) this._commitScan(code);
         }, this._DEBOUNCE_MS);
     }
 
     async _commitScan(barcode) {
         if (!barcode) return;
+
+        // Clear field *before* RPC so the next scan starts fresh
+        this.state.barcode = "";
+        setTimeout(() => this._focus(), 0);
+
         try {
             const recs = await this.orm.searchRead(
                 "product.product",
                 [["barcode", "=", barcode]],
                 ["id", "display_name", "default_code", "list_price", "uom_id"]
             );
+
             if (recs && recs.length) {
                 const p = recs[0];
                 this.state.details = {
@@ -72,20 +80,18 @@ class ProductDetailSearchDashboard extends Component {
                     default_code: p.default_code || "",
                     uom: (p.uom_id && p.uom_id[1]) || "",
                     price: p.list_price || 0,
-                    // kiosk UI placeholders:
+                    // kiosk placeholders (no packaging logic here)
                     package_qty: 0,
                     package_price: 0,
-                    symbol: "$",
+                    symbol: "$",           // change to company currency if you want
                     currency_symbol: "$",
                 };
             } else {
-                this.state.details = null; // template shows 'not found' message
+                this.state.details = null; // your template shows "لم يتم العثور على منتج"
             }
-        } catch (e) {
-            this.state.details = null; // quiet failure for kiosk mode
-        } finally {
-            this.state.barcode = "";   // ready for next scan
-            setTimeout(() => this._focus(), 0);
+        } catch {
+            // Quiet kiosk: no toast spam on errors
+            this.state.details = null;
         }
     }
 }
