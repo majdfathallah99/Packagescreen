@@ -15,6 +15,7 @@
       <div class="scan">
         <input class="scan-input"
                t-ref="scanInput"
+               autofocus="autofocus"
                t-att-value="state.barcode"
                t-on-keydown="onKeyDown"
                t-on-input="onInput"
