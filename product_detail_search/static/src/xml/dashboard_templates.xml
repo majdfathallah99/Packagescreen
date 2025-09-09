@@ -11,47 +11,54 @@
 
   <t t-name="product_detail_search_template">
     <div class="pds rtl">
+      <!-- centered pill input -->
       <div class="scan">
         <input class="scan-input"
                t-ref="scanInput"
                t-att-value="state.barcode"
                t-on-keydown="onKeyDown"
                t-on-input="onInput"
-               placeholder="امسح أو اكتب الباركود / Scan or type barcode"/>
+               placeholder="Scan or type barcode / امسح أو اكتب الباركود"/>
       </div>
 
+      <!-- round icon + name [default_code] -->
       <t t-set="d" t-value="state.details"/>
       <t t-if="d">
         <div class="head">
           <img class="logo" src="/product_detail_search/static/description/icon.png"/>
-          <div class="name"><t t-esc="d.name"/></div>
+          <div class="name">
+            <t t-esc="d.name"/><t t-if="d.default_code"> [<t t-esc="d.default_code"/>]</t>
+          </div>
         </div>
 
+        <!-- two cards row -->
         <div class="cards">
           <div class="tile piece">
-            <div class="tile-title"><t t-esc="_t('قطعة')"/></div>
+            <div class="tile-title">قطعة</div>
             <div class="tile-value">
               <t t-esc="((+ (d.price || d.list_price) ) || 0).toFixed(3)"/>
             </div>
+            <!-- Units - $ (uom first, then currency) -->
             <div class="tile-sub">
-              <t t-esc="(d.symbol || d.currency_symbol || '')"/> - <t t-esc="d.uom"/>
+              <t t-esc="d.uom"/> - <t t-esc="(d.symbol || d.currency_symbol || '')"/>
             </div>
           </div>
 
           <div class="tile pack">
-            <div class="tile-title"><t t-esc="_t('عبوة')"/></div>
+            <div class="tile-title">عبوة</div>
             <div class="tile-value">
               <t t-esc="((+ (d.package_price || 0) ) || 0).toFixed(3)"/>
             </div>
             <div class="tile-sub">
-              <t t-esc="d.package_qty ? (d.package_qty + ' × ' + (d.uom || '')) : _t('لا توجد عبوة')"/>
+              <t t-esc="d.package_qty ? '× ' + d.package_qty + ' ' + (d.uom || '') : 'لا توجد عبوة'"/>
             </div>
           </div>
         </div>
       </t>
 
-      <t t-if="state.details === null &amp;&amp; state.barcode">
-        <div class="not-found"><t t-esc="_t('لم يتم العثور على منتج')"/></div>
+      <!-- optional helper if someone typed but nothing returned -->
+      <t t-if="state.details === null and state.barcode">
+        <div class="not-found">لم يتم العثور على منتج</div>
       </t>
     </div>
   </t>
