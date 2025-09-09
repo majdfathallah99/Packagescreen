@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Find Products in Pos and Stock using Barcode',
-    'version': '18.0.1.0.2',  # bump so Odoo reloads
+    'version': '18.0.1.0.3',  # bump so Odoo reloads data/assets
     'category': 'Point of Sale',
     'summary': (
         'Find Products in POS and Stock using barcode scanning to quickly '
-        'identify and track items. Each product is assigned a unique barcode.'
+        'identify and track items.'
     ),
     'description': (
         'Find Products in POS and Inventory enhances efficiency, reduces errors, '
@@ -15,20 +15,32 @@
     'company': 'Cybrosys Techno Solutions',
     'maintainer': 'Cybrosys Techno Solutions',
     'website': "https://www.cybrosys.com",
+    'license': 'LGPL-3',
     'depends': ['point_of_sale', 'stock'],
+    'application': True,
+    'installable': True,
+    'auto_install': False,
 
+    # XML data (make sure both files exist in product_detail_search/views/)
     'data': [
-        'views/stock_views.xml',   # ✅ comma fixed
+        'views/stock_views.xml',
         'views/app_menu.xml',
     ],
 
+    # App icon(s) shown in Apps grid
     'images': [
-        'static/description/icon.png',   # show in Apps grid/app switcher
+        'static/description/icon.png',
         'static/description/banner.jpg',
     ],
 
+    # Assets (Odoo 18 uses `point_of_sale.assets`)
     'assets': {
-        # Odoo 18: use `point_of_sale.assets`
+        'web.assets_backend': [
+            'product_detail_search/static/src/css/barcode.css',
+            'product_detail_search/static/src/css/dashboard.css',
+            'product_detail_search/static/src/js/dashboard.js',
+            'product_detail_search/static/src/xml/dashboard_templates.xml',
+        ],
         'point_of_sale.assets': [
             'product_detail_search/static/src/css/pos.css',
             'product_detail_search/static/src/js/find_product_button.js',
@@ -38,16 +50,5 @@
             'product_detail_search/static/src/xml/product_details_templates.xml',
             'product_detail_search/static/src/xml/chrome_templates.xml',
         ],
-        'web.assets_backend': [
-            'product_detail_search/static/src/css/barcode.css',
-            'product_detail_search/static/src/css/dashboard.css',
-            'product_detail_search/static/src/js/dashboard.js',
-            'product_detail_search/static/src/xml/dashboard_templates.xml',
-        ],
     },
-
-    'license': 'LGPL-3',
-    'installable': True,
-    'application': True,   # gives a home-screen tile
-    'auto_install': False,
 }
