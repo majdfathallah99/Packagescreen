@@ -1,48 +1,92 @@
-/* container and RTL */
-.pds { padding: 24px 8px; display: flex; flex-direction: column; align-items: center; }
+/* ---------- Layout & RTL ---------- */
+.pds {
+  padding: 36px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
 .pds.rtl { direction: rtl; }
 
-/* top search pill */
-.pds .scan { margin: 6px 0 18px; }
-.pds .scan-input {
-  width: 520px; max-width: 92vw; height: 44px;
-  border: 2px solid #111; border-radius: 14px;
-  padding: 6px 16px; font-size: 16px; text-align: center; outline: none;
+/* ---------- Search pill (big) ---------- */
+.pds .scan { margin: 10px 0 28px; }
+.pds .scan-input{
+  width: 820px; max-width: 96vw; height: 68px;
+  border: 3px solid #111; border-radius: 20px;
+  padding: 12px 22px; font-size: 22px; text-align: center; outline: none;
   background: #fff;
 }
-.pds .scan-input:focus { box-shadow: 0 0 0 3px rgba(17,17,17,.08); }
+.pds .scan-input::placeholder{ opacity:.7; }
+.pds .scan-input:focus{ box-shadow: 0 0 0 5px rgba(17,17,17,.08); }
 
-/* round icon + title */
-.pds .head { display: flex; flex-direction: column; align-items: center; margin: 6px 0 12px; }
-.pds .head .logo {
-  width: 56px; height: 56px; border-radius: 999px;
-  background: #f4f5f7; padding: 10px; object-fit: contain;
-  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+/* ---------- Header: big round icon + VERY BIG product name ---------- */
+.pds .head{
+  display:flex; flex-direction:column; align-items:center;
+  margin: 6px 0 18px;
 }
-.pds .head .name { margin-top: 8px; font-size: 18px; font-weight: 600; color: #333; }
-
-/* cards row */
-.pds .cards { display: flex; gap: 22px; flex-wrap: wrap; justify-content: center; }
-
-/* card */
-.pds .tile {
-  width: 360px; max-width: 94vw;
-  border-radius: 12px; background: #fff; overflow: hidden;
-  box-shadow: 0 6px 18px rgba(20,20,20,.06);
+.pds .head .logo{
+  width: 96px; height: 96px; border-radius: 999px;
+  background:#f4f5f7; padding:16px; object-fit:contain;
+  box-shadow: 0 3px 6px rgba(0,0,0,.08);
 }
-.pds .tile .tile-title {
-  text-align: center; font-weight: 700; color: #fff; padding: 10px 12px;
-}
-.pds .tile.piece .tile-title { background: #1f5bd3; }     /* blue header */
-.pds .tile.pack .tile-title  { background: #d46a1f; }     /* orange header */
-
-.pds .tile .tile-value {
-  text-align: center; font-size: 44px; line-height: 1.1;
-  font-weight: 800; letter-spacing: .4px; padding: 18px 16px 2px; color: #222;
-}
-.pds .tile .tile-sub {
-  text-align: center; color: #8a8a8a; padding: 0 16px 18px; font-size: 14px;
+/* >>> HUGE name <<< */
+.pds .head .name{
+  margin-top: 10px;
+  font-size: 48px;       /* was 36px */
+  line-height: 1.12;
+  font-weight: 900;
+  letter-spacing: .2px;
+  color:#222;
+  text-align: center;
+  max-width: 90vw;
 }
 
-/* not found */
-.pds .not-found { margin-top: 18px; font-size: 16px; color: #a33; }
+/* ---------- Cards row ---------- */
+.pds .cards{ display:flex; gap:32px; flex-wrap:wrap; justify-content:center; }
+
+/* ---------- Card (XL) ---------- */
+.pds .tile{
+  width: 600px; max-width: 96vw;
+  border-radius: 18px; background:#fff; overflow:hidden;
+  box-shadow: 0 12px 30px rgba(20,20,20,.10);
+}
+/* >>> BIGGER labels: قطعة / عبوة <<< */
+.pds .tile .tile-title{
+  text-align:center; font-weight:900; color:#fff;
+  padding:18px 20px; font-size:34px;   /* was 28px */
+}
+.pds .tile.piece .tile-title{ background:#1f5bd3; }
+.pds .tile.pack  .tile-title{ background:#d46a1f; }
+
+.pds .tile .tile-value{
+  text-align:center; font-size:96px;   /* was 72px */
+  line-height:1.06;
+  font-weight:900; letter-spacing:.6px;
+  padding:28px 20px 10px; color:#111;
+}
+.pds .tile .tile-sub{
+  text-align:center; color:#8a8a8a; padding:0 20px 24px; font-size:20px;
+}
+
+/* ---------- Not found ---------- */
+.pds .not-found{ margin-top:18px; font-size:22px; color:#b33; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1280px){
+  .pds .head .name{ font-size: 42px; }
+  .pds .tile .tile-title{ font-size:30px; }
+  .pds .tile .tile-value{ font-size:84px; }
+}
+@media (max-width: 1024px){
+  .pds .scan-input{ width: 92vw; height: 62px; font-size:20px; }
+  .pds .head .logo{ width:84px; height:84px; }
+  .pds .head .name{ font-size: 36px; }
+  .pds .tile{ width: 92vw; }
+  .pds .tile .tile-title{ font-size:26px; }
+  .pds .tile .tile-value{ font-size:74px; }
+  .pds .tile .tile-sub{ font-size:18px; }
+}
+@media (max-width: 480px){
+  .pds .head .name{ font-size: 30px; }
+  .pds .tile .tile-title{ font-size:22px; }
+  .pds .tile .tile-value{ font-size:56px; }
+}
