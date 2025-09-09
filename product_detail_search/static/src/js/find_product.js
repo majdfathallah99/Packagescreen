@@ -13,7 +13,7 @@ export class FindProductScreen extends Component {
         this.pos = usePos();
         this.orm = useService("orm");
 
-        // Use wrappers so `this` is preserved, and handle any barcode type.
+        // Use arrow functions so `this` is preserved.
         useBarcodeReader({
             product: (code) => this._onScan(code),
             any:     (code) => this._onScan(code),
@@ -51,7 +51,7 @@ export class FindProductScreen extends Component {
 
             this.pos.showScreen("ProductDetails", { product_details: details });
         } catch (e) {
-            // Keep POS alive; just show "not found" layout
+            // Keep POS stable on any error
             this.pos.showScreen("ProductDetails", { product_details: false });
         }
     }
