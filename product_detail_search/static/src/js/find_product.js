@@ -13,7 +13,7 @@ export class FindProductScreen extends Component {
         this.pos = usePos();
         this.orm = useService("orm");
 
-        // Use arrow functions so `this` is preserved.
+        // Preserve `this` and handle any barcode event.
         useBarcodeReader({
             product: (code) => this._onScan(code),
             any:     (code) => this._onScan(code),
@@ -50,7 +50,7 @@ export class FindProductScreen extends Component {
             }];
 
             this.pos.showScreen("ProductDetails", { product_details: details });
-        } catch (e) {
+        } catch {
             // Keep POS stable on any error
             this.pos.showScreen("ProductDetails", { product_details: false });
         }
@@ -61,4 +61,8 @@ export class FindProductScreen extends Component {
     }
 }
 
-registry.category("pos_screens").add("FindProductScreen", FindProductScreen);
+// ❗ Guarded registration to avoid "already exists" crash
+const screens1 = registry.category("pos_screens");
+if (!screens1.get("FindProductScreen")) {
+    screens1.add("FindProductScreen", FindProductScreen);
+}
