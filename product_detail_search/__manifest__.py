@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Find Products in Pos and Stock using Barcode',
-    'version': '18.0.1.0.4',  # bump so Odoo reloads
+    'version': '18.0.1.0.6',  # bump so Odoo reloads
     'category': 'Point of Sale',
     'summary': (
         'Find Products in POS and Stock using barcode scanning to quickly '
@@ -16,24 +16,21 @@
     'maintainer': 'Cybrosys Techno Solutions',
     'website': "https://www.cybrosys.com",
     'license': 'LGPL-3',
-    'depends': ['base', 'web', 'point_of_sale', 'stock'],
+    'depends': ['point_of_sale', 'stock'],
     'application': True,
     'installable': True,
     'auto_install': False,
 
-    # XML data (must exist under product_detail_search/views/)
     'data': [
         'views/stock_views.xml',
         'views/app_menu.xml',
     ],
 
-    
-    ],
+    # images REMOVED (icon.png / banner.jpg)
 
-    # Assets (Odoo 18 uses `point_of_sale.assets`)
     'assets': {
         'web.assets_backend': [
-            'product_detail_search/static/src/css/barcode.css',
+            # 'product_detail_search/static/src/css/barcode.css',  # REMOVED
             'product_detail_search/static/src/css/dashboard.css',
             'product_detail_search/static/src/js/dashboard.js',
             'product_detail_search/static/src/xml/dashboard_templates.xml',
