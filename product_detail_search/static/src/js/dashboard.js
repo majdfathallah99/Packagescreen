@@ -8,9 +8,11 @@ class ProductDetailSearchDashboard extends Component {
     setup() {
         this.orm = useService("orm");
         this.state = useState({ barcode: "", details: null });
-        this._typed = false;
+
+        // timings
+        this._DEBOUNCE_MS = 250;
+        this._MIN_LEN = 2;
         this._timer = null;
-        this._DEBOUNCE = 250;
         this._mounted = false;
 
         onMounted(() => { this._mounted = true; setTimeout(() => this._focus(), 0); });
@@ -19,30 +21,49 @@ class ProductDetailSearchDashboard extends Component {
 
     _focus() {
         if (!this._mounted) return;
-        const el = this.el && this.el.querySelector && this.el.querySelector(".scan-input");
-        if (el) { el.focus(); el.select && el.select(); }
+        const el = this.el?.querySelector?.(".scan-input");
+        if (el) { el.focus(); el.select?.(); }
+    }
+    _normalize(v) { return String(v || "").replace(/\r|\n/g, "").trim(); }
+
+    // ---- New handlers (for XML using onKeyDown/onInput)
+    onKeyDown(ev) {
+        if (ev.key === "Enter") {
+            ev.preventDefault();
+            const code = this._normalize(this.state.barcode);
+            this._commitScan(code);
+        }
+    }
+    onInput(ev) {
+        this.state.barcode = ev.target.value;
+        this._debounceCommit();
     }
 
-    onProductKeypress() { this._typed = true; }
-
+    // ---- Back-compat handlers (for XML using onProductKeypress/change_product_barcode)
+    onProductKeypress() { /* no-op: kept for legacy XML */ }
     change_product_barcode(ev) {
         this.state.barcode = ev.target.value;
-        if (!this._typed) return;
-        if (this._timer) clearTimeout(this._timer);
-        this._timer = setTimeout(() => this.get_product(), this._DEBOUNCE);
+        this._debounceCommit();
     }
 
-    async get_product() {
-        const barcode = (this.state.barcode || "").replace(/\r|\n/g, "").trim();
-        if (!barcode) { this.state.details = null; return; }
+    _debounceCommit() {
+        if (this._timer) clearTimeout(this._timer);
+        this._timer = setTimeout(() => {
+            const code = this._normalize(this.state.barcode);
+            if (code && code.length >= this._MIN_LEN) {
+                this._commitScan(code);
+            }
+        }, this._DEBOUNCE_MS);
+    }
 
+    async _commitScan(barcode) {
+        if (!barcode) return;
         try {
             const recs = await this.orm.searchRead(
                 "product.product",
                 [["barcode", "=", barcode]],
                 ["id", "display_name", "default_code", "list_price", "uom_id"]
             );
-
             if (recs && recs.length) {
                 const p = recs[0];
                 this.state.details = {
@@ -51,18 +72,19 @@ class ProductDetailSearchDashboard extends Component {
                     default_code: p.default_code || "",
                     uom: (p.uom_id && p.uom_id[1]) || "",
                     price: p.list_price || 0,
+                    // kiosk UI placeholders:
                     package_qty: 0,
                     package_price: 0,
-                    symbol: "$",            // change to company currency if you prefer
+                    symbol: "$",
                     currency_symbol: "$",
                 };
             } else {
-                this.state.details = null;   // template shows "لم يتم العثور على منتج"
+                this.state.details = null; // template shows 'not found' message
             }
         } catch (e) {
-            this.state.details = null;       // quiet kiosk: no toast spam
+            this.state.details = null; // quiet failure for kiosk mode
         } finally {
-            this.state.barcode = "";         // ready for next scan
+            this.state.barcode = "";   // ready for next scan
             setTimeout(() => this._focus(), 0);
         }
     }
