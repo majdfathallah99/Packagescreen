@@ -7,21 +7,19 @@ import { _t } from "@web/core/l10n/translation";
 
 class ProductDetailSearchDashboard extends Component {
     setup() {
-        // ✅ keep this minimal; no super needed
         this.orm = useService("orm");
         this.notification = useService("notification");
-        this.state = useState({ barcode: "", details: null, history: [] });
+        this._t = _t; // expose to template
+
+        this.state = useState({ barcode: "", details: null });
 
         this._debounceTimer = null;
-        this._DEBOUNCE_MS = 250;
-        this._MIN_LEN = 6;
+        this._DEBOUNCE_MS = 250;   // wait for scanner to finish
+        this._MIN_LEN = 6;         // ignore very short codes
         this._mounted = false;
-        this._t = _t;  
-
 
         onMounted(() => {
             this._mounted = true;
-            // ✅ defer one tick so refs are available
             setTimeout(() => this.focusInput(), 0);
         });
         onWillUnmount(() => {
@@ -30,15 +28,13 @@ class ProductDetailSearchDashboard extends Component {
         });
     }
 
-    // ✅ SAFE focus that doesn’t assume refs exist yet
     focusInput() {
         if (!this._mounted) return;
         const el = (this.refs && this.refs.scanInput)
             ? this.refs.scanInput
-            : this.el && this.el.querySelector && this.el.querySelector(".scan-input");
+            : (this.el && this.el.querySelector && this.el.querySelector(".scan-input"));
         if (el) {
             el.focus();
-            // scanners often send CR; selecting helps manual edits too
             if (el.select) el.select();
         }
     }
@@ -65,33 +61,22 @@ class ProductDetailSearchDashboard extends Component {
     async _commitScan(barcode) {
         if (!barcode) return;
         try {
-            const res = await this.orm.call("product.template", "product_detail_search", [[], barcode]); // ✅ correct args
+            const res = await this.orm.call("product.template", "product_detail_search", [[], barcode]);
             const details = (res && res.length) ? res[0] : null;
             this.state.details = details;
 
             if (!details) {
-                this.notification.add(_t("Product not found."), { type: "warning" });
-            } else {
-                this.state.history.unshift({
-                    ts: Date.now(),
-                    name: details.name,
-                    barcode: barcode,
-                    price: details.price ?? details.list_price,
-                    uom: details.uom,
-                    symbol: details.symbol || details.currency_symbol || "",
-                });
-                if (this.state.history.length > 20) this.state.history.pop();
+                this.notification.add(this._t("Product not found."), { type: "warning" });
             }
         } catch {
-            this.notification.add(_t("Error fetching product."), { type: "danger" });
+            this.notification.add(this._t("Error fetching product."), { type: "danger" });
             this.state.details = null;
         } finally {
-            // prepare for the next scan
             this.state.barcode = "";
-            // ✅ defer focus again after DOM patch
             setTimeout(() => this.focusInput(), 0);
         }
     }
 }
+
 ProductDetailSearchDashboard.template = "CustomDashBoardFindProduct";
 registry.category("actions").add("product_detail_search_barcode_main_menu", ProductDetailSearchDashboard);
