@@ -22,7 +22,7 @@ class ProductDetailSearchDashboard extends Component {
 
         onMounted(() => {
             this._mounted = true;
-            console.log("PDS build 18.0.1.8");
+            console.log("PDS build 18.0.1.9");
 
             // Aggressive focus
             this._focus();
@@ -57,7 +57,7 @@ class ProductDetailSearchDashboard extends Component {
         }
     }
 
-    // Keep code intact. Normalize Arabic-Indic digits; ignore single stray letter only.
+    // Normalize Arabic-Indic digits; ignore single stray letter only.
     _normalize(v) {
         let s = String(v || "").replace(/[\r\n\t]+/g, "").trim();
         const map = {
@@ -120,7 +120,6 @@ class ProductDetailSearchDashboard extends Component {
     // ---------- Helper: enrich with packaging if missing ----------
     async _enrichWithPackaging(details) {
         try {
-            // Already have pack qty
             if (!details || details.package_qty) return details;
 
             // Read product_tmpl_id for the product
@@ -146,12 +145,12 @@ class ProductDetailSearchDashboard extends Component {
                 details.package_price = (details.price || 0) * qty;
             }
         } catch {
-            // quiet fail
+            // silent
         }
         return details;
     }
 
-    // ---------- Lookup: server (supports packaging) + fallback + enrichment ----------
+    // ---------- Lookup: server (supports packaging) + fallbacks + enrichment ----------
     async _commitScan(barcode) {
         if (!barcode) return;
 
@@ -161,7 +160,7 @@ class ProductDetailSearchDashboard extends Component {
 
         let details = null;
 
-        // 1) Preferred: server method (handles product + template + packaging barcodes)
+        // 1) Preferred: unified server method (product/packaging/template barcodes)
         try {
             const out = await this.orm.call("product.template", "product_detail_search", [barcode]);
             const d = (out && out[0]) || null;
@@ -182,7 +181,7 @@ class ProductDetailSearchDashboard extends Component {
             }
         } catch { /* ignore */ }
 
-        // 2) Fallback: exact variant barcode (guarantees normal barcodes work)
+        // 2) Fallback: exact variant barcode
         try {
             if (!details) {
                 const recs = await this.orm.searchRead(
@@ -209,7 +208,7 @@ class ProductDetailSearchDashboard extends Component {
             }
         } catch { /* ignore */ }
 
-        // 3) Final fallback: template barcode -> pick main variant
+        // 3) Final fallback: template barcode → choose main variant
         try {
             if (!details) {
                 const tmpls = await this.orm.searchRead(
@@ -242,12 +241,17 @@ class ProductDetailSearchDashboard extends Component {
             }
         } catch { /* ignore */ }
 
-        // 4) Enrich with packaging if unit-only (covers the "normal barcode → only unit" case)
+        // 4) Enrich with packaging if we only have unit price
         details = await this._enrichWithPackaging(details);
 
-        this.state.details = details || null; // template shows "لم يتم العثور على منتج" when null
+        this.state.details = details || null; // template shows "not found" when null
     }
 }
 
-ProductDetailSearchDashboard.template = "product_detail_search.ProductDetails";
-registry.category("actions").add("product_detail_search_barcode_main_menu", ProductDetailSearchDashboard);
+// ✅ Bind to the simple dashboard template you want
+ProductDetailSearchDashboard.template = "CustomDashBoardFindProduct";
+
+// Keep the action registration
+registry
+  .category("actions")
+  .add("product_detail_search_barcode_main_menu", ProductDetailSearchDashboard);
