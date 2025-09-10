@@ -249,5 +249,5 @@ class ProductDetailSearchDashboard extends Component {
     }
 }
 
-ProductDetailSearchDashboard.template = "CustomDashBoardFindProduct";
+ProductDetailSearchDashboard.template = "product_detail_search.ProductDetails";
 registry.category("actions").add("product_detail_search_barcode_main_menu", ProductDetailSearchDashboard);
