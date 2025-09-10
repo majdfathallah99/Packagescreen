@@ -14,17 +14,17 @@
 
         <h1 style="text-align:center;font-size:28px;margin:31px 0;">Product Information</h1>
 
-        <t t-if="product_details==false">
+        <t t-if="product_details == false">
           <h2 style="display:flex;justify-content:center;">No products Found</h2>
         </t>
         <t t-else="">
-          <!-- convenience aliases so we work with both old/new keys -->
+          <!-- convenience aliases so we work with both old/new keys (JS syntax only) -->
           <t t-set="d" t-value="product_details[0]"/>
-          <t t-set="currency"   t-value="d.currency_symbol or d.symbol or '$'"/>
-          <t t-set="uom"        t-value="d.uom or 'Units'"/>
-          <t t-set="unit_price" t-value="d.price if 'price' in d else d.list_price"/>
-          <t t-set="pkg_qty"    t-value="d.package_qty or 0"/>
-          <t t-set="pkg_price"  t-value="d.package_price or 0"/>
+          <t t-set="currency"   t-value="d.currency_symbol || d.symbol || '$'"/>
+          <t t-set="uom"        t-value="d.uom || 'Units'"/>
+          <t t-set="unit_price" t-value="('price' in d) ? d.price : d.list_price"/>
+          <t t-set="pkg_qty"    t-value="d.package_qty || 0"/>
+          <t t-set="pkg_price"  t-value="d.package_price || 0"/>
 
           <div class="container_product_info">
             <div class="category-img">
@@ -102,7 +102,7 @@
                 </tr>
                 <tr>
                   <td class="label">Company:</td>
-                  <t t-if="not d.company_id">
+                  <t t-if="!d.company_id">
                     <td class="value" style="padding-left:0px;">No company</td>
                   </t>
                   <t t-else="">
