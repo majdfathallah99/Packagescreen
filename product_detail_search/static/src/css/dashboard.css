@@ -60,22 +60,18 @@
 .pds .pc-price{ font-size:clamp(28px,5vw,40px); font-weight:800; letter-spacing:.5px; }
 .pds .pc-sub{ color:#8a8a8a; font-size:13px; margin-top:6px; }
 
-/* ---------- Pick ONE of the two layout options below ---------- */
-
-/* OPTION A: Bootstrap row/cols (use when wrapper = .row.pds-cards) */
-.pds-cards .col-12{ display:flex; }
-.pds-cards .col-12 > .pc-card{ width:100%; }
-
-/* OPTION B: CSS Grid (use when wrapper = .price-cards) */
-.pds .price-cards{
-  display:grid;
+/* ==================== SIDE-BY-SIDE LAYOUT (no Bootstrap needed) ==================== */
+.pds-cards{
+  display:flex;
+  flex-wrap:wrap;
   gap:16px;
-  grid-template-columns:1fr;            /* mobile: stacked */
   justify-content:center;
   margin:12px 0 24px;
 }
-@media (min-width:768px){
-  .pds .price-cards{ grid-template-columns:repeat(2, minmax(280px, 420px)); }
+.pds-cards > .col-12{
+  flex: 1 1 360px;      /* two columns on wide screens, one on small */
+  max-width: 440px;
+  display:flex;         /* let the card stretch to equal height */
 }
-.pds .price-cards > *{ height:100%; }
-/* =============================================================== */
+.pds-cards .pc-card{ width:100%; }
+/* ================================================================================ */
