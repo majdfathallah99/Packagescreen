@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<!-- Template For getting the product details -->
 <templates id="template" xml:space="preserve">
   <t t-name="product_detail_search.ProductDetails" owl="1">
     <div class="clientlist-screen screen">
@@ -14,12 +13,13 @@
 
         <h1 style="text-align:center;font-size:28px;margin:31px 0;">Product Information</h1>
 
-        <t t-if="product_details == false">
+        <!-- When nothing scanned yet or not found -->
+        <t t-if="!state.details">
           <h2 style="display:flex;justify-content:center;">No products Found</h2>
         </t>
         <t t-else="">
-          <!-- convenience aliases so we work with both old/new keys (JS syntax only) -->
-          <t t-set="d" t-value="product_details[0]"/>
+          <!-- Use the object from JS state -->
+          <t t-set="d" t-value="state.details"/>
           <t t-set="currency"   t-value="d.currency_symbol || d.symbol || '$'"/>
           <t t-set="uom"        t-value="d.uom || 'Units'"/>
           <t t-set="unit_price" t-value="('price' in d) ? d.price : d.list_price"/>
@@ -31,7 +31,7 @@
               <img t-attf-src="/web/image?model=product.product&amp;field=image_1920&amp;id=#{d.id}"/>
             </div>
 
-            <!-- ====== SIDE-BY-SIDE PRICE CARDS (inline Flex, no CSS file needed) ====== -->
+            <!-- SIDE-BY-SIDE PRICE CARDS (inline Flex) -->
             <div class="pds-cards"
                  style="display:flex; flex-wrap:wrap; gap:16px; justify-content:center; margin:12px 0 24px;">
               <!-- Unit card -->
@@ -58,7 +58,6 @@
                 </div>
               </t>
             </div>
-            <!-- ======================================================================= -->
 
             <!-- Details table -->
             <div style="width:fit-content;">
