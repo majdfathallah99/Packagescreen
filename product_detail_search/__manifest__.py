@@ -59,7 +59,6 @@
             'product_detail_search/static/src/js/dashboard.js',
             'product_detail_search/static/src/xml/dashboard_templates.xml',
             'product_detail_search/static/src/css/dashboard.css',
-            'product_detail_search/static/src/xml/product_details_templates.xml',
         ],
     },
     'license': 'LGPL-3',
