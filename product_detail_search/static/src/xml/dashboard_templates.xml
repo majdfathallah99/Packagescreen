@@ -24,11 +24,12 @@
         </div>
       </div>
 
-      <!-- Price cards (SIDE-BY-SIDE on desktop, stack on mobile) -->
+      <!-- Price cards: ALWAYS side-by-side (no wrapping); scrolls horizontally if too narrow -->
       <t t-if="state.details">
-        <div style="display:flex; flex-wrap:wrap; gap:18px; justify-content:center; margin:14px auto 10px; max-width:980px;">
+        <div style="display:flex; flex-wrap:nowrap; gap:18px; justify-content:center;
+                    max-width:980px; margin:14px auto 10px; overflow-x:auto; padding-bottom:4px;">
           <!-- Unit -->
-          <div style="flex:1 1 420px; max-width:480px; display:flex;">
+          <div style="flex:1 1 0; min-width:360px; max-width:480px; display:flex;">
             <div class="card" style="width:100%; margin:0; border-radius:14px; box-shadow:0 8px 28px rgba(0,0,0,.08); overflow:hidden;">
               <div style="background:#1e5bd8;color:#fff;text-align:center;padding:10px 12px;font-weight:700;">قطعة</div>
               <div style="padding:24px 22px; text-align:center;">
@@ -45,7 +46,7 @@
 
           <!-- Pack (only if exists) -->
           <t t-if="state.details.package_qty">
-            <div style="flex:1 1 420px; max-width:480px; display:flex;">
+            <div style="flex:1 1 0; min-width:360px; max-width:480px; display:flex;">
               <div class="card" style="width:100%; margin:0; border-radius:14px; box-shadow:0 8px 28px rgba(0,0,0,.08); overflow:hidden;">
                 <div style="background:#de6c18;color:#fff;text-align:center;padding:10px 12px;font-weight:700;">عبوة</div>
                 <div style="padding:24px 22px; text-align:center;">
