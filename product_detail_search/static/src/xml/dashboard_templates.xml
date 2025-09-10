@@ -2,7 +2,7 @@
 <templates id="template" xml:space="preserve">
   <!-- Simple “Find Product” screen -->
   <t t-name="CustomDashBoardFindProduct" owl="1">
-    <div class="pds pds-wrap container" style="max-width:900px; margin:auto; padding:12px 8px 28px;">
+    <div class="pds pds-wrap container" style="max-width:980px; margin:auto; padding:12px 8px 28px;">
       <!-- Scan input -->
       <div class="scan" style="display:flex; justify-content:center; margin:10px 0 18px;">
         <input class="scan-input form-control"
