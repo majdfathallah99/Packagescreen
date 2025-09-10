@@ -144,9 +144,7 @@ class ProductDetailSearchDashboard extends Component {
                 details.package_qty = qty;
                 details.package_price = (details.price || 0) * qty;
             }
-        } catch {
-            // silent
-        }
+        } catch { /* silent */ }
         return details;
     }
 
@@ -248,10 +246,10 @@ class ProductDetailSearchDashboard extends Component {
     }
 }
 
-// ✅ Bind to the simple dashboard template you want
+// Bind to the simple dashboard template
 ProductDetailSearchDashboard.template = "CustomDashBoardFindProduct";
 
-// Keep the action registration
+// Register action
 registry
   .category("actions")
   .add("product_detail_search_barcode_main_menu", ProductDetailSearchDashboard);
