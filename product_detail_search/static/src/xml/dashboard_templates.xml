@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <templates id="template" xml:space="preserve">
-  <!-- This is the simple “Find Product” screen -->
+  <!-- Simple “Find Product” screen -->
   <t t-name="CustomDashBoardFindProduct" owl="1">
     <div class="pds pds-wrap container" style="max-width:900px; margin:auto; padding:12px 8px 28px;">
       <!-- Scan input -->
@@ -24,35 +24,42 @@
         </div>
       </div>
 
-      <!-- Price cards (STACKED) -->
+      <!-- Price cards (SIDE-BY-SIDE on desktop, stack on mobile) -->
       <t t-if="state.details">
-        <!-- Unit -->
-        <div class="card" style="margin:14px auto 10px;max-width:740px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.08);overflow:hidden;">
-          <div style="background:#1e5bd8;color:#fff;text-align:center;padding:10px 12px;font-weight:700;">قطعة</div>
-          <div style="padding:22px 18px;text-align:center;">
-            <div style="font-size:56px;font-weight:800;letter-spacing:.5px;">
-              <t t-esc="state.details.price"/>
-            </div>
-            <div style="color:#8a8a8a;font-size:14px;margin-top:6px;">
-              <t t-esc="state.details.currency_symbol or '$'"/> - <t t-esc="state.details.uom or 'Units'"/>
+        <div style="display:flex; flex-wrap:wrap; gap:18px; justify-content:center; margin:14px auto 10px; max-width:980px;">
+          <!-- Unit -->
+          <div style="flex:1 1 420px; max-width:480px; display:flex;">
+            <div class="card" style="width:100%; margin:0; border-radius:14px; box-shadow:0 8px 28px rgba(0,0,0,.08); overflow:hidden;">
+              <div style="background:#1e5bd8;color:#fff;text-align:center;padding:10px 12px;font-weight:700;">قطعة</div>
+              <div style="padding:24px 22px; text-align:center;">
+                <div style="font-size:56px; font-weight:800; letter-spacing:.5px;">
+                  <t t-esc="state.details.price"/>
+                </div>
+                <div style="color:#8a8a8a; font-size:14px; margin-top:6px;">
+                  <t t-esc="state.details.currency_symbol or '$'"/> -
+                  <t t-esc="state.details.uom or 'Units'"/>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- Pack (only if exists) -->
-        <t t-if="state.details.package_qty">
-          <div class="card" style="margin:10px auto 0;max-width:740px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.08);overflow:hidden;">
-            <div style="background:#de6c18;color:#fff;text-align:center;padding:10px 12px;font-weight:700;">عبوة</div>
-            <div style="padding:22px 18px;text-align:center;">
-              <div style="font-size:56px;font-weight:800;letter-spacing:.5px;">
-                <t t-esc="state.details.package_price"/>
-              </div>
-              <div style="color:#8a8a8a;font-size:14px;margin-top:6px;">
-                <t t-esc="state.details.uom or 'Units'"/> <t t-esc="state.details.package_qty"/> ×
+          <!-- Pack (only if exists) -->
+          <t t-if="state.details.package_qty">
+            <div style="flex:1 1 420px; max-width:480px; display:flex;">
+              <div class="card" style="width:100%; margin:0; border-radius:14px; box-shadow:0 8px 28px rgba(0,0,0,.08); overflow:hidden;">
+                <div style="background:#de6c18;color:#fff;text-align:center;padding:10px 12px;font-weight:700;">عبوة</div>
+                <div style="padding:24px 22px; text-align:center;">
+                  <div style="font-size:56px; font-weight:800; letter-spacing:.5px;">
+                    <t t-esc="state.details.package_price"/>
+                  </div>
+                  <div style="color:#8a8a8a; font-size:14px; margin-top:6px;">
+                    <t t-esc="state.details.uom or 'Units'"/> <t t-esc="state.details.package_qty"/> ×
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </t>
+          </t>
+        </div>
       </t>
     </div>
   </t>
