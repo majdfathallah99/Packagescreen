@@ -3,17 +3,20 @@ from odoo import models, api
 class ProductTemplate(models.Model):
     _inherit = "product.template"
 
-    # optional: normalize Arabic-Indic digits, trim spaces
     def _sanitize_code(self, code):
         s = (code or "").strip()
-        trans = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+        trans = str.maketrans("٠١٢٣٤٥٦٧٨٩۰١٢٣٤٥٦٧٨٩", "01234567890123456789")
         return s.translate(trans)
 
     @api.model
     def product_detail_search(self, barcode):
         """
-        Robust lookup: product.product -> product.template -> product.packaging.
-        ALWAYS tries to include a packaging (sales preferred) even when scanning a normal barcode.
+        Robust lookup:
+          1) product.product.barcode
+          2) product.template.barcode  -> take main variant
+          3) product.packaging.barcode -> take linked product
+        Then ALWAYS try to pick a packaging for the found product/template so
+        package_qty/package_price are present for normal barcodes too.
         """
         code = self._sanitize_code(barcode)
         if not code:
@@ -48,9 +51,9 @@ class ProductTemplate(models.Model):
         if not product:
             return False
 
-        # ------- pick a packaging to display (even for normal barcodes) -------
-        # Helper to read qty across versions
+        # ---------- Choose a packaging to DISPLAY ----------
         def _qty(pk):
+            """Read qty across versions; ensure int >= 0."""
             if not pk:
                 return 0
             if "qty" in Packaging._fields:
@@ -59,34 +62,40 @@ class ProductTemplate(models.Model):
                 return int(pk.contained_quantity or 0)
             return 0
 
-        package_qty = 0
-        pack_rec = False
-
-        if scanned_pack:
-            pack_rec = scanned_pack
-            package_qty = _qty(pack_rec)
-
-        if not package_qty:
-            # Prefer a SALES packaging tied to this product or its template
-            domain_base = ["|",
-                ("product_id", "=", product.id),
-                ("product_tmpl_id", "=", product.product_tmpl_id.id),
+        def _pick_display_pack(prod):
+            """Prefer a sales pack with qty>=2; else any pack with qty>=2; else any pack with qty>=1."""
+            dom_base = ["|",
+                ("product_id", "=", prod.id),
+                ("product_tmpl_id", "=", prod.product_tmpl_id.id),
             ]
-            # first: sales=True
-            if "sales" in Packaging._fields:
-                pack_rec = Packaging.search(["&", ("sales", "=", True)] + domain_base, limit=1)
-                package_qty = _qty(pack_rec)
 
-            # second: any packaging with qty > 1
-            if not package_qty:
-                candidates = Packaging.search(domain_base, limit=1)
-                if candidates:
-                    pack_rec = candidates
-                    package_qty = _qty(pack_rec)
+            # A) if scanned a pack, use it
+            if scanned_pack:
+                return scanned_pack if _qty(scanned_pack) >= 1 else False
+
+            # B) sales packs with qty>=2
+            if "sales" in Packaging._fields:
+                pk = Packaging.search(["&", ("sales", "=", True)] + dom_base, order="id", limit=50)
+                best = next((p for p in pk if _qty(p) >= 2), False)
+                if best:
+                    return best
+
+            # C) any pack with qty>=2
+            any_pk = Packaging.search(dom_base, order="id", limit=50)
+            best = next((p for p in any_pk if _qty(p) >= 2), False)
+            if best:
+                return best
+
+            # D) as a last resort, any pack with qty>=1
+            best = next((p for p in any_pk if _qty(p) >= 1), False)
+            return best or False
+
+        pack_rec = _pick_display_pack(product)
+        package_qty = _qty(pack_rec)
 
         unit_price = product.list_price or 0.0
-        package_price = (unit_price * package_qty) if package_qty else 0.0
-        currency = (product.currency_id or self.env.company.currency_id)
+        package_price = unit_price * package_qty if package_qty else 0.0
+        currency = product.currency_id or self.env.company.currency_id
 
         return [{
             "id": product.id,
