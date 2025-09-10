@@ -22,10 +22,9 @@ class ProductDetailSearchDashboard extends Component {
 
         onMounted(() => {
             this._mounted = true;
-            // Build stamp to confirm fresh assets are loaded
-            console.log("PDS build 18.0.1.7");
+            console.log("PDS build 18.0.1.8");
 
-            // Aggressive focus (SPA can steal it)
+            // Aggressive focus
             this._focus();
             setTimeout(() => this._focus(), 0);
             setTimeout(() => this._focus(), 120);
@@ -61,17 +60,12 @@ class ProductDetailSearchDashboard extends Component {
     // Keep code intact. Normalize Arabic-Indic digits; ignore single stray letter only.
     _normalize(v) {
         let s = String(v || "").replace(/[\r\n\t]+/g, "").trim();
-
-        // Arabic-Indic → ASCII (both Arabic and Persian forms)
         const map = {
             "٠":"0","١":"1","٢":"2","٣":"3","٤":"4","٥":"5","٦":"6","٧":"7","٨":"8","٩":"9",
             "۰":"0","۱":"1","۲":"2","۳":"3","۴":"4","۵":"5","۶":"6","۷":"7","۸":"8","۹":"9"
         };
         s = s.replace(/[٠-٩۰-۹]/g, (ch) => map[ch] || ch);
-
-        // If a single stray letter sneaks in (not a real scan), ignore it
-        if (s.length === 1 && /[A-Za-z]/.test(s)) return "";
-
+        if (s.length === 1 && /[A-Za-z]/.test(s)) return ""; // ignore lone letter blips
         return s;
     }
 
@@ -94,11 +88,9 @@ class ProductDetailSearchDashboard extends Component {
 
     // ---------- Global fallback: capture scans anywhere ----------
     _handleGlobalKeydown(ev) {
-        // If user is already typing inside our input, do nothing
         const isOurInput = ev.target && (ev.target === this.refs?.scanInput);
         if (isOurInput) return;
 
-        // Ignore when typing in other inputs/contenteditables
         if (ev.target && (ev.target.tagName === "INPUT" || ev.target.tagName === "TEXTAREA" || ev.target.isContentEditable)) {
             return;
         }
@@ -114,7 +106,6 @@ class ProductDetailSearchDashboard extends Component {
             return;
         }
 
-        // Accept digits/letters only
         if (/^[0-9A-Za-z]$/.test(k)) {
             this._scanBuf += k;
             if (this._bufTimer) clearTimeout(this._bufTimer);
@@ -126,7 +117,41 @@ class ProductDetailSearchDashboard extends Component {
         }
     }
 
-    // ---------- Lookup: server (supports packaging) + fallback (normal product barcodes) ----------
+    // ---------- Helper: enrich with packaging if missing ----------
+    async _enrichWithPackaging(details) {
+        try {
+            // Already have pack qty
+            if (!details || details.package_qty) return details;
+
+            // Read product_tmpl_id for the product
+            const prod = await this.orm.read("product.product", [details.id], ["product_tmpl_id"]);
+            const tmplId = prod?.[0]?.product_tmpl_id?.[0];
+
+            // Look for a sales packaging on product or template
+            const domain = tmplId
+                ? ["&", ["sales", "=", true], ["|", ["product_id", "=", details.id], ["product_tmpl_id", "=", tmplId]]]
+                : ["&", ["sales", "=", true], ["product_id", "=", details.id]];
+
+            const pk = await this.orm.searchRead(
+                "product.packaging",
+                domain,
+                ["qty", "contained_quantity"]
+            );
+
+            const q = pk?.[0]?.qty ?? pk?.[0]?.contained_quantity ?? 0;
+            const qty = parseInt(q || 0, 10);
+
+            if (qty > 0) {
+                details.package_qty = qty;
+                details.package_price = (details.price || 0) * qty;
+            }
+        } catch {
+            // quiet fail
+        }
+        return details;
+    }
+
+    // ---------- Lookup: server (supports packaging) + fallback + enrichment ----------
     async _commitScan(barcode) {
         if (!barcode) return;
 
@@ -136,15 +161,10 @@ class ProductDetailSearchDashboard extends Component {
 
         let details = null;
 
+        // 1) Preferred: server method (handles product + template + packaging barcodes)
         try {
-            // 1) Preferred: server method (handles product.barcode + product.template.barcode + packaging.barcode)
-            const out = await this.orm.call(
-                "product.template",
-                "product_detail_search",
-                [barcode]
-            );
+            const out = await this.orm.call("product.template", "product_detail_search", [barcode]);
             const d = (out && out[0]) || null;
-
             if (d) {
                 details = {
                     id: d.id,
@@ -160,19 +180,16 @@ class ProductDetailSearchDashboard extends Component {
                     scanned_barcode: d.scanned_barcode || barcode,
                 };
             }
-        } catch {
-            // ignore; fallback below
-        }
+        } catch { /* ignore */ }
 
+        // 2) Fallback: exact variant barcode (guarantees normal barcodes work)
         try {
             if (!details) {
-                // 2) Fallback: EXACT match on variant barcode (product.product) — guarantees normal barcodes work
                 const recs = await this.orm.searchRead(
                     "product.product",
                     [["barcode", "=", barcode]],
                     ["id", "display_name", "default_code", "list_price", "uom_id"]
                 );
-
                 if (recs && recs.length) {
                     const p = recs[0];
                     details = {
@@ -190,13 +207,11 @@ class ProductDetailSearchDashboard extends Component {
                     };
                 }
             }
-        } catch {
-            // ignore
-        }
+        } catch { /* ignore */ }
 
+        // 3) Final fallback: template barcode -> pick main variant
         try {
             if (!details) {
-                // 3) Final fallback: template barcode -> pick main variant (keeps pre-packaging behavior)
                 const tmpls = await this.orm.searchRead(
                     "product.template",
                     [["barcode", "=", barcode]],
@@ -207,7 +222,7 @@ class ProductDetailSearchDashboard extends Component {
                     const vars = await this.orm.searchRead(
                         "product.product",
                         [["product_tmpl_id", "=", tmpl.id]],
-                        ["id", "list_price"],
+                        ["id", "list_price"]
                     );
                     const v = vars && vars[0];
                     details = {
@@ -225,9 +240,10 @@ class ProductDetailSearchDashboard extends Component {
                     };
                 }
             }
-        } catch {
-            // ignore
-        }
+        } catch { /* ignore */ }
+
+        // 4) Enrich with packaging if unit-only (covers the "normal barcode → only unit" case)
+        details = await this._enrichWithPackaging(details);
 
         this.state.details = details || null; // template shows "لم يتم العثور على منتج" when null
     }
