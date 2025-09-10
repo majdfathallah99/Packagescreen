@@ -1,65 +1,58 @@
-<?xml version="1.0" encoding="utf-8"?>
-<templates id="pds_dashboard_templates" xml:space="preserve">
-
-  <t t-name="CustomDashBoardFindProduct">
-    <div class="pds-wrap container">
-      <div class="barcode_inventory">
-        <t t-call="product_detail_search_template"/>
-      </div>
-    </div>
-  </t>
-
-  <t t-name="product_detail_search_template">
-    <div class="pds rtl">
-      <!-- centered pill input -->
-      <div class="scan">
-        <input class="scan-input"
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates id="template" xml:space="preserve">
+  <!-- This is the simple “Find Product” screen -->
+  <t t-name="CustomDashBoardFindProduct" owl="1">
+    <div class="pds pds-wrap container" style="max-width:900px; margin:auto; padding:12px 8px 28px;">
+      <!-- Scan input -->
+      <div class="scan" style="display:flex; justify-content:center; margin:10px 0 18px;">
+        <input class="scan-input form-control"
                t-ref="scanInput"
-               autofocus="autofocus"
                t-att-value="state.barcode"
+               placeholder="امسح أو اكتب الباركود | Scan or type barcode"
                t-on-keydown="onKeyDown"
                t-on-input="onInput"
-               placeholder="Scan or type barcode / امسح أو اكتب الباركود"/>
+               style="height:46px; font-size:16px; padding:10px 14px; border-radius:14px; border:2px solid #222; width:720px; max-width:100%;"/>
       </div>
 
-      <!-- round icon + name [default_code] -->
-      <t t-set="d" t-value="state.details"/>
-      <t t-if="d">
-        <div class="head">
-          <img class="logo" src="/product_detail_search/static/description/icon.png"/>
-          <div class="name">
-            <t t-esc="d.name"/><t t-if="d.default_code"> [<t t-esc="d.default_code"/>]</t>
+      <!-- Icon + name -->
+      <div class="text-center" style="margin:8px 0 8px;">
+        <div class="avatar" style="width:56px;height:56px;border-radius:50%;background:#f2f2f7;display:inline-flex;align-items:center;justify-content:center;margin-bottom:8px;">
+          <i class="fa fa-barcode" style="font-size:22px;color:#667085"></i>
+        </div>
+        <div class="name" style="font-weight:800;letter-spacing:.3px;font-size:48px;line-height:1.1;margin:6px 0 2px;">
+          <t t-esc="state.details and state.details.name or ''"/>
+        </div>
+      </div>
+
+      <!-- Price cards (STACKED) -->
+      <t t-if="state.details">
+        <!-- Unit -->
+        <div class="card" style="margin:14px auto 10px;max-width:740px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.08);overflow:hidden;">
+          <div style="background:#1e5bd8;color:#fff;text-align:center;padding:10px 12px;font-weight:700;">قطعة</div>
+          <div style="padding:22px 18px;text-align:center;">
+            <div style="font-size:56px;font-weight:800;letter-spacing:.5px;">
+              <t t-esc="state.details.price"/>
+            </div>
+            <div style="color:#8a8a8a;font-size:14px;margin-top:6px;">
+              <t t-esc="state.details.currency_symbol or '$'"/> - <t t-esc="state.details.uom or 'Units'"/>
+            </div>
           </div>
         </div>
 
-        <!-- two cards row -->
-        <div class="cards">
-          <div class="tile piece">
-            <div class="tile-title">قطعة</div>
-            <div class="tile-value">
-              <t t-esc="((+ (d.price || d.list_price) ) || 0).toFixed(3)"/>
-            </div>
-            <!-- Units - $ (uom first, then currency) -->
-            <div class="tile-sub">
-              <t t-esc="d.uom"/> - <t t-esc="(d.symbol || d.currency_symbol || '')"/>
-            </div>
-          </div>
-
-          <div class="tile pack">
-            <div class="tile-title">عبوة</div>
-            <div class="tile-value">
-              <t t-esc="((+ (d.package_price || 0) ) || 0).toFixed(3)"/>
-            </div>
-            <div class="tile-sub">
-              <t t-esc="d.package_qty ? '× ' + d.package_qty + ' ' + (d.uom || '') : 'لا توجد عبوة'"/>
+        <!-- Pack (only if exists) -->
+        <t t-if="state.details.package_qty">
+          <div class="card" style="margin:10px auto 0;max-width:740px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.08);overflow:hidden;">
+            <div style="background:#de6c18;color:#fff;text-align:center;padding:10px 12px;font-weight:700;">عبوة</div>
+            <div style="padding:22px 18px;text-align:center;">
+              <div style="font-size:56px;font-weight:800;letter-spacing:.5px;">
+                <t t-esc="state.details.package_price"/>
+              </div>
+              <div style="color:#8a8a8a;font-size:14px;margin-top:6px;">
+                <t t-esc="state.details.uom or 'Units'"/> <t t-esc="state.details.package_qty"/> ×
+              </div>
             </div>
           </div>
-        </div>
-      </t>
-
-      <!-- optional helper if someone typed but nothing returned -->
-      <t t-if="state.details === null and state.barcode">
-        <div class="not-found">لم يتم العثور على منتج</div>
+        </t>
       </t>
     </div>
   </t>
