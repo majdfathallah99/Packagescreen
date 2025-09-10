@@ -31,11 +31,9 @@
           <!-- Unit -->
           <div style="flex:1 1 0; min-width:360px; max-width:480px; display:flex;">
             <div class="card" style="width:100%; margin:0; border-radius:14px; box-shadow:0 8px 28px rgba(0,0,0,.08); overflow:hidden;">
-              <!-- BIG header -->
-              <div style="background:#1e5bd8;color:#fff;text-align:center;
-                          padding:16px 18px; font-weight:900;
-                          font-size:clamp(22px, 2.6vw, 30px);
-                          border-bottom:1px solid rgba(255,255,255,.12);">
+              <!-- Header exactly like screenshot -->
+              <div style="background:#1e5bd8; color:#fff; text-align:center;
+                          padding:12px 18px; font-weight:800; font-size:20px; line-height:1.1;">
                 قطعة
               </div>
               <div style="padding:24px 22px; text-align:center;">
@@ -54,11 +52,9 @@
           <t t-if="state.details.package_qty">
             <div style="flex:1 1 0; min-width:360px; max-width:480px; display:flex;">
               <div class="card" style="width:100%; margin:0; border-radius:14px; box-shadow:0 8px 28px rgba(0,0,0,.08); overflow:hidden;">
-                <!-- BIG header -->
-                <div style="background:#de6c18;color:#fff;text-align:center;
-                            padding:16px 18px; font-weight:900;
-                            font-size:clamp(22px, 2.6vw, 30px);
-                            border-bottom:1px solid rgba(255,255,255,.12);">
+                <!-- Header exactly like screenshot (orange) -->
+                <div style="background:#de6c18; color:#fff; text-align:center;
+                            padding:12px 18px; font-weight:800; font-size:20px; line-height:1.1;">
                   عبوة
                 </div>
                 <div style="padding:24px 22px; text-align:center;">
