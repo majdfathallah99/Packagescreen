@@ -3,23 +3,19 @@ from odoo import models, api
 class ProductTemplate(models.Model):
     _inherit = "product.template"
 
-    # Normalize Arabic-Indic digits and trim
     def _sanitize_code(self, code):
         s = (code or "").strip()
+        # Arabic/Persian digits -> ASCII
         trans = str.maketrans("٠١٢٣٤٥٦٧٨٩۰١٢٣٤٥٦٧٨٩", "01234567890123456789")
         return s.translate(trans)
 
     @api.model
     def product_detail_search(self, barcode):
         """
-        Find product by:
-          1) product.product.barcode
-          2) product.template.barcode (main variant)
-          3) product.packaging.barcode (linked product/template)
-
+        product.product.barcode -> product.template.barcode -> product.packaging.barcode
         Then ALWAYS choose a packaging to display for the found product/template:
-          - prefer sales=True with highest qty
-          - else any packaging with highest qty
+          - prefer sales=True with the highest quantity
+          - else the highest quantity
         """
         code = self._sanitize_code(barcode)
         if not code:
@@ -54,41 +50,35 @@ class ProductTemplate(models.Model):
         if not product:
             return False
 
-        # ---------- choose a packaging to display (for normal barcodes too) ----------
-        def _qty(pk):
-            if not pk:
-                return 0
-            if "qty" in Packaging._fields:
-                return int(pk.qty or 0)
-            if "contained_quantity" in Packaging._fields:
-                return int(pk.contained_quantity or 0)
-            return 0
+        # -------------------- choose a packaging to DISPLAY --------------------
+        # Read all packagings attached to variant or template in one query
+        packs = Packaging.search_read(
+            ["|", ("product_id", "=", product.id),
+                  ("product_tmpl_id", "=", product.product_tmpl_id.id)],
+            ["id", "sales", "qty", "contained_quantity"],
+            limit=0,
+        )
 
-        # all packs attached to either the variant or its template
-        packs = Packaging.search([
-            "|",
-            ("product_id", "=", product.id),
-            ("product_tmpl_id", "=", product.product_tmpl_id.id),
-        ])
+        def _q(p):
+            # Support both field names; ensure int >= 0
+            return int((p.get("qty") if "qty" in p else p.get("contained_quantity") or 0) or 0)
 
-        display_pack = False
+        display_qty = 0
 
-        # if user actually scanned a packaging barcode, use that one
-        if scanned_pack and _qty(scanned_pack) >= 1:
-            display_pack = scanned_pack
+        if scanned_pack:
+            # If the scanned code WAS a packaging barcode, use exactly that packaging
+            pk = Packaging.browse(scanned_pack.id)
+            display_qty = int((pk.qty if "qty" in Packaging._fields else pk.contained_quantity) or 0)
         else:
-            # 1) prefer sales=True (if field exists), with the largest qty
-            sales_packs = packs
-            if "sales" in Packaging._fields:
-                sales_packs = packs.filtered(lambda p: bool(getattr(p, "sales", False)))
-            if sales_packs:
-                display_pack = max(sales_packs, key=_qty)
-            # 2) else any pack with the largest qty
-            if not display_pack and packs:
-                display_pack = max(packs, key=_qty)
+            # Prefer sales=True with the largest qty
+            sales = [p for p in packs if p.get("sales")]
+            if sales:
+                display_qty = _q(max(sales, key=_q))
+            elif packs:
+                display_qty = _q(max(packs, key=_q))
 
-        package_qty = _qty(display_pack)
         unit_price = product.list_price or 0.0
+        package_qty = int(display_qty or 0)
         package_price = unit_price * package_qty if package_qty else 0.0
         currency = product.currency_id or self.env.company.currency_id
 
@@ -98,7 +88,7 @@ class ProductTemplate(models.Model):
             "default_code": product.default_code or "",
             "uom": product.uom_id and product.uom_id.display_name or "",
             "price": unit_price,
-            "package_qty": int(package_qty),
+            "package_qty": package_qty,
             "package_price": package_price,
             "currency_symbol": (currency and currency.symbol) or "",
             "scanned_as": "packaging" if scanned_pack else "product",
