@@ -16,7 +16,6 @@
 .pds .name{
   font-weight: 800;
   letter-spacing: .3px;
-  /* was huge; clamp keeps it reasonable on all screens */
   font-size: clamp(28px, 6vw, 48px);
   line-height: 1.1;
   margin: 18px 0 8px;
@@ -31,7 +30,7 @@
   box-shadow: 0 6px 18px rgba(0,0,0,.08);
 }
 
-/* prices / small texts if you show them */
+/* prices / small texts */
 .pds .price{ font-size: clamp(18px, 4vw, 24px); }
 .pds .pack, .pds .muted{ font-size: clamp(12px, 2.6vw, 14px); }
 
@@ -43,3 +42,40 @@
 @media (min-width: 992px){
   .pds-wrap.container{ max-width: 900px; }
 }
+
+/* ==================== PRICE CARD COMPONENT ==================== */
+.pds .pc-card{
+  background:#fff;
+  border-radius:16px;
+  box-shadow:0 8px 28px rgba(0,0,0,.08);
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  height:100%;
+}
+.pds .pc-head{ text-align:center; padding:8px 12px; font-weight:700; }
+.pds .pc-head.blue{ background:#1e5bd8; color:#fff; }
+.pds .pc-head.orange{ background:#de6c18; color:#fff; }
+.pds .pc-body{ padding:18px 20px; text-align:center; }
+.pds .pc-price{ font-size:clamp(28px,5vw,40px); font-weight:800; letter-spacing:.5px; }
+.pds .pc-sub{ color:#8a8a8a; font-size:13px; margin-top:6px; }
+
+/* ---------- Pick ONE of the two layout options below ---------- */
+
+/* OPTION A: Bootstrap row/cols (use when wrapper = .row.pds-cards) */
+.pds-cards .col-12{ display:flex; }
+.pds-cards .col-12 > .pc-card{ width:100%; }
+
+/* OPTION B: CSS Grid (use when wrapper = .price-cards) */
+.pds .price-cards{
+  display:grid;
+  gap:16px;
+  grid-template-columns:1fr;            /* mobile: stacked */
+  justify-content:center;
+  margin:12px 0 24px;
+}
+@media (min-width:768px){
+  .pds .price-cards{ grid-template-columns:repeat(2, minmax(280px, 420px)); }
+}
+.pds .price-cards > *{ height:100%; }
+/* =============================================================== */
