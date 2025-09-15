@@ -1,134 +1,182 @@
-from odoo import models, api
+from odoo import api, models
+from odoo.tools import float_round
 
 class ProductTemplate(models.Model):
     _inherit = "product.template"
 
-    # normalize Arabic/Persian digits and trim
-    def _sanitize_code(self, code):
-        s = (code or "").strip()
-        trans = str.maketrans("٠١٢٣٤٥٦٧٨٩۰١٢٣٤٥٦٧٨٩", "01234567890123456789")
-        return s.translate(trans)
-
     @api.model
-    def product_detail_search(self, barcode):
+    def product_detail_search(self, raw_code):
         """
-        product.barcode -> template.barcode -> packaging.barcode
-        Then ALWAYS choose a packaging for the located product/template:
-          1) if we scanned a packaging, use *that* packaging
-          2) else prefer sales=True with the largest quantity
-          3) else the largest quantity overall
+        Given a scanned `raw_code` (product EAN, template EAN, or packaging barcode),
+        return a list with one dict describing the product and pricing to show in POS.
 
-        Robust to:
-          - packaging quantity field name: contained_quantity / qty
-          - packaging linkage: product_id (to tmpl) and/or product_tmpl_id
-          - archived / multi-company (sudo + active_test=False)
+        CHANGE: If barcode hits a *packaging*, we now try to fetch the *UoM price*
+        from pos_multi_uom_price (variant > template) and use it as the "package price".
         """
-        code = self._sanitize_code(barcode)
+        # -------------------------------
+        # Helpers
+        # -------------------------------
+        def _normalize(code):
+            if not code:
+                return ""
+            trans = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+            return code.translate(trans).strip()
+
+        def _find_product_by_barcode(code):
+            Product = self.env["product.product"]
+            # variant barcode
+            p = Product.search([("barcode", "=", code)], limit=1)
+            if p:
+                return p
+            # template barcode
+            tmpl = self.search([("barcode", "=", code)], limit=1)
+            if tmpl:
+                # pick the first saleable variant
+                v = tmpl.product_variant_id or tmpl.product_variant_ids[:1]
+                return v
+            return False
+
+        def _find_packaging_by_barcode(code):
+            return self.env["product.packaging"].search([("barcode", "=", code)], limit=1)
+
+        def _map_packaging_to_uom(packaging, product):
+            """Best-effort mapping:
+            1) use packaging.uom_id if it exists (recommended)
+            2) else map by name (case-insensitive) within the same UoM category as product's UoM
+            """
+            UoM = self.env["uom.uom"]
+            # 1) explicit field (if you added it in your env)
+            uom = getattr(packaging, "uom_id", False)
+            if uom:
+                return uom
+
+            # 2) by name (safe category)
+            name = (packaging.name or "").strip()
+            if not name:
+                return False
+            cat = product.uom_id.category_id.id if product.uom_id else False
+            domain = [("name", "=ilike", name)]
+            if cat:
+                domain.append(("category_id", "=", cat))
+            uom = UoM.search(domain, limit=1)
+            return uom
+
+        def _get_uom_price(product, uom):
+            """Look up price from your multi-UoM module.
+            Try variant model first, then template model.
+            Accepted model names seen in your module analysis:
+              - 'product.multi.uom.price' (variant)
+              - 'product.tmpl.multi.uom.price' (template)
+            """
+            # variant-level
+            try:
+                VariantPrice = self.env["product.multi.uom.price"]
+                vp = VariantPrice.search(
+                    [("product_id", "=", product.id), ("uom_id", "=", uom.id)],
+                    limit=1,
+                )
+                if vp:
+                    return vp.price
+            except Exception:
+                pass
+
+            # template-level
+            try:
+                TmplPrice = self.env["product.tmpl.multi.uom.price"]
+                tp = TmplPrice.search(
+                    [("product_tmpl_id", "=", product.product_tmpl_id.id), ("uom_id", "=", uom.id)],
+                    limit=1,
+                )
+                if tp:
+                    return tp.price
+            except Exception:
+                pass
+
+            return None
+
+        # -------------------------------
+        # Main logic
+        # -------------------------------
+        code = _normalize(raw_code)
         if not code:
             return False
 
-        Product   = self.env["product.product"].sudo().with_context(active_test=False)
-        Template  = self.env["product.template"].sudo().with_context(active_test=False)
-        Packaging = self.env["product.packaging"].sudo().with_context(active_test=False)
+        Product = self.env["product.product"]
+        Packaging = self.env["product.packaging"]
+        company = self.env.company
 
-        # ---------- locate product ----------
-        product = Product.search([("barcode", "=", code)], limit=1)
-        scanned_pack = False
-
-        if not product:
-            tmpl = Template.search([("barcode", "=", code)], limit=1)
-            if tmpl:
-                product = tmpl.product_variant_id or Product.search([("product_tmpl_id", "=", tmpl.id)], limit=1)
+        product = _find_product_by_barcode(code)
+        packaging = False
+        package_qty = 1.0
+        package_price = None  # we'll set it below
 
         if not product:
-            scanned_pack = Packaging.search([("barcode", "=", code)], limit=1)
-            if scanned_pack:
-                # packaging may link via product_id (tmpl) or product_tmpl_id (older DBs)
-                product = scanned_pack.product_id or (
-                    hasattr(scanned_pack, "product_tmpl_id")
-                    and Product.search([("product_tmpl_id", "=", scanned_pack.product_tmpl_id.id)], limit=1)
-                )
+            # Maybe it's a packaging barcode
+            packaging = _find_packaging_by_barcode(code)
+            if packaging:
+                product = Product.browse(packaging.product_id.id)
+                package_qty = packaging.qty or 1.0
 
         if not product:
             return False
 
-        # ---------- helper funcs ----------
-        def _qty_from_rec(pk):
-            """Return integer qty from either contained_quantity or qty."""
-            if not pk:
-                return 0
-            if hasattr(pk, "contained_quantity") and pk.contained_quantity is not None:
-                try:
-                    return int(pk.contained_quantity or 0)
-                except Exception:
-                    return int(float(pk.contained_quantity or 0))
-            if hasattr(pk, "qty") and pk.qty is not None:
-                try:
-                    return int(pk.qty or 0)
-                except Exception:
-                    return int(float(pk.qty or 0))
-            return 0
+        # Base (unit) price shown by many templates
+        list_price = product.lst_price
 
-        def _build_pack_domain(prod):
-            """
-            Build a domain that works regardless of whether the packaging model
-            has product_id (pointing to tmpl) and/or product_tmpl_id.
-            """
-            clauses = []
-            # If product_id exists, decide whether it expects a product or template id
-            if "product_id" in Packaging._fields:
-                # Most DBs: product_id -> product.template
-                comodel = Packaging._fields["product_id"].comodel_name
-                if comodel == "product.template":
-                    clauses.append(("product_id", "=", prod.product_tmpl_id.id))
-                else:  # extremely rare: product_id -> product.product
-                    clauses.append(("product_id", "=", prod.id))
-            if "product_tmpl_id" in Packaging._fields:
-                clauses.append(("product_tmpl_id", "=", prod.product_tmpl_id.id))
-
-            if not clauses:
-                return [("id", "=", 0)]  # no linkage fields -> nothing
-            # OR all clauses together
-            domain = []
-            if len(clauses) == 1:
-                domain = clauses
-            else:
-                # ["|", A, B, "|", (prev), C, ...]
-                domain = ["|"] * (len(clauses) - 1)
-                for c in clauses:
-                    domain.append(c)
-            return domain
-
-        # ---------- pick display packaging ----------
-        display_pack = False
-        if scanned_pack and _qty_from_rec(scanned_pack) >= 1:
-            display_pack = scanned_pack
-        else:
-            packs = Packaging.search(_build_pack_domain(product))
-            if packs:
-                # Prefer sales=True with the largest quantity
-                sales_packs = packs
-                if "sales" in Packaging._fields:
-                    sales_packs = packs.filtered(lambda r: bool(getattr(r, "sales", False)))
-                if sales_packs:
-                    display_pack = max(sales_packs, key=_qty_from_rec)
+        # If packaging was scanned, compute "package_price" using UoM price
+        if packaging:
+            uom = _map_packaging_to_uom(packaging, product)
+            if uom:
+                uom_price = _get_uom_price(product, uom)
+                if uom_price is not None:
+                    # Use UoM price instead of packaging price
+                    package_price = float_round(uom_price, precision_rounding=product.currency_id.rounding)
                 else:
-                    display_pack = max(packs, key=_qty_from_rec)
+                    # No configured UoM price → fallback to product price (or keep None if you prefer)
+                    package_price = float_round(list_price, precision_rounding=product.currency_id.rounding)
 
-        package_qty = _qty_from_rec(display_pack)
-        unit_price  = product.list_price or 0.0
-        package_price = unit_price * package_qty if package_qty else 0.0
-        currency = product.currency_id or self.env.company.currency_id
+        # If not packaging (normal scan), keep default behavior (no package price)
+        # Build UoM prices list for the details panel (optional)
+        uom_prices = []
+        try:
+            VariantPrice = self.env["product.multi.uom.price"]
+            for row in VariantPrice.search([("product_id", "=", product.id)]):
+                uom_prices.append({
+                    "uom_id": row.uom_id.id,
+                    "uom_name": row.uom_id.display_name,
+                    "price": row.price,
+                })
+        except Exception:
+            try:
+                TmplPrice = self.env["product.tmpl.multi.uom.price"]
+                for row in TmplPrice.search([("product_tmpl_id", "=", product.product_tmpl_id.id)]):
+                    uom_prices.append({
+                        "uom_id": row.uom_id.id,
+                        "uom_name": row.uom_id.display_name,
+                        "price": row.price,
+                    })
+            except Exception:
+                pass
 
-        return [{
+        # Response expected by your JS
+        res = {
             "id": product.id,
-            "name": product.display_name,
+            "display_name": product.display_name,
+            "barcode": product.barcode or "",
             "default_code": product.default_code or "",
-            "uom": product.uom_id and product.uom_id.display_name or "",
-            "price": unit_price,
-            "package_qty": int(package_qty),
-            "package_price": package_price,
-            "currency_symbol": (currency and currency.symbol) or "",
-            "scanned_as": "packaging" if scanned_pack else "product",
-            "scanned_barcode": code,
-        }]
+            "list_price": list_price,
+
+            # Packaging section used by the POS "details" module:
+            "package_qty": package_qty,
+            "package_price": package_price,  # <— now the UoM price when packaging is scanned
+
+            # Extra info for UI
+            "uom_prices": uom_prices,
+            "category": product.categ_id.display_name if product.categ_id else "",
+            "qty_available": product.qty_available,
+            "company_id": [company.id, company.name],
+            "type": product.type or "",
+            "specification": product.description_sale or "",
+            "tax_amount": "",
+        }
+        return [res]
