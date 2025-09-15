@@ -40,6 +40,7 @@
     'data': [
         'views/stock_views.xml' ,
         'views/app_menu.xml'
+        'views/product_packaging_views.xml',
     ],
     'images': [
         'static/description/banner.jpg',
