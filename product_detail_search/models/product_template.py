@@ -7,13 +7,13 @@ class ProductTemplate(models.Model):
     @api.model
     def product_detail_search(self, raw_code):
         """
-        عند مسح باركود:
-        - لو كان باركود تغليف: package_price = سعر الـ UoM المطابق للتغليف.
-        - لو كان باركود منتج: أيضاً نحسب package_price باختيار تغليف/UoM افتراضي للعرض في بطاقة "عبوة".
-        أولوية جلب سعر UoM: model 'product.multi.uom.price' (variant) ثم 'product.tmpl.multi.uom.price' (template).
+        لا نستخدم التغليف إطلاقاً.
+        - 'piece_price' / 'list_price'  = سعر البيع للقطعة.
+        - 'uom_price'  / 'pack_price'   = سعر الـ UoM (أول سطر موجود للمنتج؛ variant أولاً ثم template).
+        - نرجّع أيضاً 'uom_id' و 'uom_name' للعرض.
         """
 
-        # ---------------- helpers ----------------
+        # -------- helpers --------
         def _normalize(code):
             if not code:
                 return ""
@@ -22,116 +22,43 @@ class ProductTemplate(models.Model):
 
         def _find_product_by_barcode(code):
             Product = self.env["product.product"]
+            # باركود المتغيّر
             p = Product.search([("barcode", "=", code)], limit=1)
             if p:
                 return p
+            # باركود التيمبلِت
             tmpl = self.search([("barcode", "=", code)], limit=1)
             if tmpl:
                 return tmpl.product_variant_id or tmpl.product_variant_ids[:1]
             return False
 
-        def _find_packaging_by_barcode(code):
-            return self.env["product.packaging"].search([("barcode", "=", code)], limit=1)
-
-        def _uom_from_packaging(packaging, product):
+        def _get_first_uom_price(product):
             """
-            الأفضل: حقل packaging.uom_id (الذي أضفناه).
-            لو مش موجود: محاولة مطابقة اسم التغليف مع UoM داخل نفس الفئة.
+            يرجّع tuple: (uom, price) من جداول أسعار UoM
+            أولوية: مستوى الـ variant ثم مستوى الـ template.
+            لو أكثر من سطر، نأخذ أول نتيجة (يمكن تخصيص الاختيار لاحقًا).
             """
-            if getattr(packaging, "uom_id", False):
-                return packaging.uom_id
-            UoM = self.env["uom.uom"]
-            name = (packaging.name or "").strip()
-            if not name:
-                return False
-            cat = product.uom_id.category_id.id if product.uom_id else False
-            domain = [("name", "=ilike", name)]
-            if cat:
-                domain.append(("category_id", "=", cat))
-            return UoM.search(domain, limit=1)
-
-        def _get_uom_price(product, uom):
-            """سعر الـ UoM من الموديلين (variant ثم template) إن وُجدا."""
-            # variant-level
+            # 1) على مستوى الـ variant
             try:
                 VariantPrice = self.env["product.multi.uom.price"]
-                vp = VariantPrice.search(
-                    [("product_id", "=", product.id), ("uom_id", "=", uom.id)],
-                    limit=1,
-                )
+                vp = VariantPrice.search([("product_id", "=", product.id)], limit=1)
                 if vp:
-                    return vp.price
+                    return vp.uom_id, vp.price
             except Exception:
                 pass
-            # template-level
+            # 2) على مستوى الـ template
             try:
                 TmplPrice = self.env["product.tmpl.multi.uom.price"]
                 tp = TmplPrice.search(
-                    [("product_tmpl_id", "=", product.product_tmpl_id.id), ("uom_id", "=", uom.id)],
-                    limit=1,
+                    [("product_tmpl_id", "=", product.product_tmpl_id.id)], limit=1
                 )
                 if tp:
-                    return tp.price
+                    return tp.uom_id, tp.price
             except Exception:
                 pass
-            return None
+            return None, None
 
-        def _pick_default_packaging(product):
-            """
-            نختار تغليفًا افتراضيًا للعرض إذا مسحنا باركود المنتج:
-            - يفضَّل أول تغليف عنده uom_id مضبوط.
-            - وإلا أي تغليف موجود.
-            """
-            packs = product.product_tmpl_id.packaging_ids
-            if not packs:
-                return False
-            with_uom = packs.filtered(lambda p: getattr(p, "uom_id", False))
-            return with_uom[:1] or packs[:1]
-
-        def _compute_package_info_for_product(product, forced_packaging=False):
-            """
-            يعيد (package_qty, package_price) للبطاقة "عبوة"
-            سواء كان المسح للتغليف أو للمنتج.
-            """
-            packaging = forced_packaging or _pick_default_packaging(product)
-            if not packaging:
-                # لا يوجد تغليف، نحاول fallback على أول UoM سعر لهذا المنتج للعرض فقط
-                uom_price = None
-                uom_name = None
-                try:
-                    VariantPrice = self.env["product.multi.uom.price"]
-                    row = VariantPrice.search([("product_id", "=", product.id)], limit=1)
-                    if row:
-                        uom_price = row.price
-                        uom_name = row.uom_id.display_name
-                except Exception:
-                    try:
-                        TmplPrice = self.env["product.tmpl.multi.uom.price"]
-                        row = TmplPrice.search(
-                            [("product_tmpl_id", "=", product.product_tmpl_id.id)], limit=1
-                        )
-                        if row:
-                            uom_price = row.price
-                            uom_name = row.uom_id.display_name
-                    except Exception:
-                        pass
-                if uom_price is None:
-                    return 1.0, None  # ما نعرضش سعر "عبوة"
-                # نعرض السعر كما هو، والكمية 1 بشكل شكلي (ما في تغليف)
-                price = float_round(uom_price, precision_rounding=product.currency_id.rounding)
-                return 1.0, price
-
-            # لدينا تغليف: نحسب السعر من UoM المرتبط
-            uom = _uom_from_packaging(packaging, product)
-            if not uom:
-                return packaging.qty or 1.0, None
-            price = _get_uom_price(product, uom)
-            if price is None:
-                return packaging.qty or 1.0, None
-            price = float_round(price, precision_rounding=product.currency_id.rounding)
-            return (packaging.qty or 1.0), price
-
-        # ---------------- main ----------------
+        # -------- main --------
         code = _normalize(raw_code)
         if not code:
             return False
@@ -140,27 +67,18 @@ class ProductTemplate(models.Model):
         company = self.env.company
 
         product = _find_product_by_barcode(code)
-        packaging = False
-
-        if not product:
-            # احتمال يكون باركود تغليف
-            packaging = _find_packaging_by_barcode(code)
-            if packaging:
-                product = Product.browse(packaging.product_id.id)
-
         if not product:
             return False
 
-        # سعر القطعة = سعر البيع العادي
+        # سعر القطعة
         list_price = product.lst_price
 
-        # احسب بيانات "عبوة" في كل الحالات:
-        if packaging:
-            package_qty, package_price = _compute_package_info_for_product(product, forced_packaging=packaging)
-        else:
-            package_qty, package_price = _compute_package_info_for_product(product)
+        # سعر الـ UoM (بدون تغليف)
+        uom, uom_price = _get_first_uom_price(product)
+        if uom_price is not None:
+            uom_price = float_round(uom_price, precision_rounding=product.currency_id.rounding)
 
-        # (اختياري) قائمة أسعار UoM للعرض
+        # (اختياري) نرسل كل أسعار الـ UoM للعرض في الواجهة لو احتجتها
         uom_prices = []
         try:
             VariantPrice = self.env["product.multi.uom.price"]
@@ -182,17 +100,25 @@ class ProductTemplate(models.Model):
             except Exception:
                 pass
 
+        # نرجّع مفاتيح واضحة + aliases علشان الـ JS يلقط أي تسمية:
         res = {
             "id": product.id,
             "display_name": product.display_name,
             "barcode": product.barcode or "",
             "default_code": product.default_code or "",
-            # بطاقة "قطعة" — هذا هو الذي تريده:
+
+            # بطاقة "قطعة"
             "list_price": list_price,
-            # بطاقة "عبوة" — الآن تُملأ حتى مع باركود المنتج:
-            "package_qty": package_qty,
-            "package_price": package_price,
-            # معلومات إضافية للواجهة إن احتجتها
+            "piece_price": list_price,     # alias
+
+            # بطاقة "عبوة" (هنا المقصود UoM)
+            "uom_id": uom.id if uom else False,
+            "uom_name": uom.display_name if uom else "",
+            "uom_price": uom_price,        # التسمية الأساسية
+            "pack_price": uom_price,       # alias للواجهة الحالية
+            "pack_qty": 1.0,               # ثابت لعرض "×" إن كان لازم
+
+            # إضافيات
             "uom_prices": uom_prices,
             "category": product.categ_id.display_name if product.categ_id else "",
             "qty_available": product.qty_available,
