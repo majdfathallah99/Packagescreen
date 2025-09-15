@@ -10,6 +10,8 @@ class ProductTemplate(models.Model):
         لو الباركود تابع لتغليف، نخلي الـ package_price = سعر الـ UoM القادم من pos_multi_uom_price
         (أولوية: مستوى الـ variant ثم مستوى الـ template).
         """
+
+        # ---------------- helpers ----------------
         def _normalize(code):
             if not code:
                 return ""
@@ -30,16 +32,8 @@ class ProductTemplate(models.Model):
             return self.env["product.packaging"].search([("barcode", "=", code)], limit=1)
 
         def _map_packaging_to_uom(packaging, product):
-            """مطابقة بالاسم داخل نفس فئة الـ UoM (بدون تعديل الموديل)."""
-            UoM = self.env["uom.uom"]
-            name = (packaging.name or "").strip()
-            if not name:
-                return False
-            cat = product.uom_id.category_id.id if product.uom_id else False
-            domain = [("name", "=ilike", name)]
-            if cat:
-                domain.append(("category_id", "=", cat))
-            return UoM.search(domain, limit=1)
+            """بعد إضافة الحقل uom_id على التغليف: استخدمه مباشرة."""
+            return packaging.uom_id or False
 
         def _get_uom_price(product, uom):
             """سعر الـ UoM من الموديلين (variant ثم template) إن وُجدا."""
@@ -67,6 +61,7 @@ class ProductTemplate(models.Model):
                 pass
             return None
 
+        # ---------------- main ----------------
         code = _normalize(raw_code)
         if not code:
             return False
@@ -80,6 +75,7 @@ class ProductTemplate(models.Model):
         package_price = None
 
         if not product:
+            # احتمال يكون باركود تغليف
             packaging = _find_packaging_by_barcode(code)
             if packaging:
                 product = Product.browse(packaging.product_id.id)
@@ -90,7 +86,7 @@ class ProductTemplate(models.Model):
 
         list_price = product.lst_price
 
-        # لو تغليف: نحاول نجيب سعر الـ UoM ونحطه مكان package_price
+        # لو تغليف: نقرأ UoM من التغليف ونستحضر سعره
         if packaging:
             uom = _map_packaging_to_uom(packaging, product)
             if uom:
@@ -100,12 +96,12 @@ class ProductTemplate(models.Model):
                         uom_price, precision_rounding=product.currency_id.rounding
                     )
                 else:
-                    # ما في سعر UoM؟ خليها ترجع لسعر المنتج الأساسي
+                    # لا يوجد سعر UoM مضبوط → عُد لسعر المنتج الأساسي
                     package_price = float_round(
                         list_price, precision_rounding=product.currency_id.rounding
                     )
 
-        # (اختياري) نرسل لواجهة البحث قائمة أسعار الـ UoM للعرض فقط
+        # (اختياري) قائمة أسعار UoM للعرض
         uom_prices = []
         try:
             VariantPrice = self.env["product.multi.uom.price"]
@@ -135,7 +131,7 @@ class ProductTemplate(models.Model):
             "list_price": list_price,
 
             "package_qty": package_qty,
-            "package_price": package_price,  # ← هنا صار سعر الـ UoM
+            "package_price": package_price,  # ← صار سعر الـ UoM
 
             "uom_prices": uom_prices,
             "category": product.categ_id.display_name if product.categ_id else "",
