@@ -1,0 +1,12 @@
+<odoo>
+  <record id="view_product_packaging_form_inherit_uom" model="ir.ui.view">
+    <field name="name">product.packaging.form.uom</field>
+    <field name="model">product.packaging</field>
+    <field name="inherit_id" ref="product.product_packaging_form_view"/>
+    <field name="arch" type="xml">
+      <xpath expr="//group" position="inside">
+        <field name="uom_id"/>
+      </xpath>
+    </field>
+  </record>
+</odoo>
